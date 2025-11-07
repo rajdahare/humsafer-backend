@@ -1,0 +1,32 @@
+{
+  "name": "humdam-soulsync-backend",
+  "version": "1.0.0",
+  "description": "Backend API for Humdam/SoulSync AI companion app",
+  "engines": {
+    "node": "20"
+  },
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "NODE_ENV=development node server.js",
+    "serve": "firebase emulators:start --only functions",
+    "deploy:firebase": "firebase deploy --only functions,firestore:rules,storage:rules",
+    "deploy:vercel": "vercel --prod",
+    "lint": "echo 'No lint configured'",
+    "test": "node test-auth.js"
+  },
+  "dependencies": {
+    "@google-cloud/speech": "^6.3.0",
+    "@google/generative-ai": "^0.21.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "firebase-admin": "^12.3.0",
+    "firebase-functions": "^5.0.0",
+    "node-fetch": "^3.3.2",
+    "openai": "^4.28.0",
+    "razorpay": "^2.9.6",
+    "stripe": "^14.21.0",
+    "twilio": "^5.0.0"
+  }
+}
