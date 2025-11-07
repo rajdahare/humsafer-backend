@@ -186,6 +186,25 @@ async function verifyPayment(req, res) {
         razorpayOrderId: razorpay_order_id,
         razorpayPaymentId: razorpay_payment_id,
       }, { merge: true });
+
+      // Save transaction history
+      await db.collection('users').doc(uid).collection('transactions').add({
+        userId: uid,
+        type: 'subscription',
+        status: 'completed',
+        amount: orderData.amount / 100, // Convert paise to rupees
+        currency: 'INR',
+        tier: orderData.tier,
+        planName: PLANS[orderData.tier].name,
+        orderId: razorpay_order_id,
+        paymentId: razorpay_payment_id,
+        paymentMethod: 'Razorpay',
+        createdAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+        description: `${PLANS[orderData.tier].name} Subscription - Monthly`,
+      });
+      
+      console.log('[Razorpay] Transaction history saved');
     } catch (firestoreError) {
       console.warn('[Razorpay] Firestore update error (continuing):', firestoreError.message);
       // Continue even if Firestore fails
