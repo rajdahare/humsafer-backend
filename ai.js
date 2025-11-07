@@ -508,7 +508,91 @@ async function processMessage(req, res) {
     // Continue anyway
   }
 
-  return ok(res, { response: result });
+  // Detect actions in the message and AI response
+  const action = detectBackgroundAction(message, result);
+  
+  return ok(res, { 
+    response: result,
+    action: action || undefined  // Include action if detected
+  });
+}
+
+/// Detect background actions from user message
+function detectBackgroundAction(userMessage, aiResponse) {
+  const lowerMsg = userMessage.toLowerCase();
+  const lowerResp = (aiResponse || '').toLowerCase();
+  
+  // Detect "open calendar" action
+  if (lowerMsg.includes('open') && (lowerMsg.includes('calendar') || lowerMsg.includes('calender'))) {
+    return {
+      type: 'open_calendar',
+      message: 'Opening calendar...'
+    };
+  }
+  
+  // Detect "schedule meeting" with calendar creation
+  if ((lowerMsg.includes('schedule') || lowerMsg.includes('add')) && 
+      (lowerMsg.includes('meeting') || lowerMsg.includes('event'))) {
+    
+    // Extract time, person, topic from message
+    const timeMatch = lowerMsg.match(/(\d{1,2})\s*(pm|am|baje)/i);
+    const personMatch = lowerMsg.match(/with\s+(\w+)|(\w+)\s+ke\s+sath/i);
+    const topicMatch = lowerMsg.match(/topic\s+(\w+[\s\w]*?)(?:\s+at|\s+on|\s+with|$)/i);
+    const dateMatch = lowerMsg.match(/tomorrow|today|kal|aaj/i);
+    
+    let eventTime = new Date();
+    if (dateMatch && dateMatch[0].match(/tomorrow|kal/)) {
+      eventTime.setDate(eventTime.getDate() + 1);
+    }
+    
+    if (timeMatch) {
+      let hour = parseInt(timeMatch[1]);
+      if (timeMatch[2] === 'pm' && hour < 12) hour += 12;
+      if (timeMatch[2] === 'am' && hour === 12) hour = 0;
+      eventTime.setHours(hour, 0, 0, 0);
+    }
+    
+    return {
+      type: 'create_calendar_event',
+      data: {
+        title: personMatch ? `Meeting with ${personMatch[1] || personMatch[2]}` : 'Meeting',
+        startTime: eventTime.toISOString(),
+        description: topicMatch ? `Topic: ${topicMatch[1]}` : userMessage,
+      },
+      message: 'Creating calendar event...'
+    };
+  }
+  
+  // Detect "open app" actions
+  const openAppMatch = lowerMsg.match(/open\s+(gmail|google|maps|youtube|whatsapp|chrome)/i);
+  if (openAppMatch) {
+    return {
+      type: 'open_app',
+      data: { app: openAppMatch[1].toLowerCase() },
+      message: `Opening ${openAppMatch[1]}...`
+    };
+  }
+  
+  // Detect "call" actions
+  const callMatch = lowerMsg.match(/call\s+(\w+)|(\w+)\s+ko\s+call/i);
+  if (callMatch) {
+    return {
+      type: 'make_call',
+      data: { contact: callMatch[1] || callMatch[2] },
+      message: 'Opening phone...'
+    };
+  }
+  
+  // Detect "send message/SMS" actions
+  if (lowerMsg.includes('send') && (lowerMsg.includes('message') || lowerMsg.includes('sms'))) {
+    return {
+      type: 'send_sms',
+      data: { },
+      message: 'Opening messages...'
+    };
+  }
+  
+  return null;
 }
 
 // Very lightweight intent parser for voice commands

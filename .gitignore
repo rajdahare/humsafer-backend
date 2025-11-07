@@ -11,6 +11,13 @@ package-lock.json
 service-account-key.json
 firebase-debug.log
 firestore-debug.log
+firebase-env-var.txt
+
+# Testing files
+test-*.js
+CONNECTION_STATUS.txt
+VERCEL_ENV_VARS.txt
+deploy.bat
 
 # Logs
 logs
