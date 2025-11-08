@@ -225,14 +225,19 @@ app.listen(PORT, () => {
   console.log('');
 });
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM signal received: closing HTTP server');
-  process.exit(0);
-});
+// Export app for Vercel serverless deployment
+module.exports = app;
 
-process.on('SIGINT', () => {
-  console.log('\nSIGINT signal received: closing HTTP server');
-  process.exit(0);
-});
+// Graceful shutdown (only for local server)
+if (require.main === module) {
+  process.on('SIGTERM', () => {
+    console.log('SIGTERM signal received: closing HTTP server');
+    process.exit(0);
+  });
+
+  process.on('SIGINT', () => {
+    console.log('\nSIGINT signal received: closing HTTP server');
+    process.exit(0);
+  });
+}
 
