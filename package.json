@@ -1,7 +1,7 @@
 {
-  "name": "humdam-soulsync-backend",
+  "name": "humsafer-backend",
   "version": "1.0.0",
-  "description": "Backend API for Humdam/SoulSync AI companion app",
+  "description": "Backend API for Humsafer - Your AI companion",
   "engines": {
     "node": "20"
   },

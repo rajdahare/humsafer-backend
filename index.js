@@ -26,18 +26,14 @@ app.use(cors({ origin: true }));
 app.options('*', cors());
 app.use(express.json({ limit: '10mb' }));
 
-// Auth-required API
-app.get('/health', (req, res) => res.status(200).json({ ok: true }));
+// Health check endpoint (public)
+app.get('/health', (req, res) => res.status(200).json({ 
+  ok: true, 
+  timestamp: new Date().toISOString(),
+  service: 'Humsafer API'
+}));
 
-// Debug endpoint to check API keys (REMOVE in production!)
-app.get('/debug/env', (req, res) => {
-  res.json({
-    XAI_API_KEY: process.env.XAI_API_KEY ? '✅ SET (' + process.env.XAI_API_KEY.substring(0, 15) + '...)' : '❌ MISSING',
-    OPENAI_API_KEY: process.env.OPENAI_API_KEY ? '✅ SET (' + process.env.OPENAI_API_KEY.substring(0, 15) + '...)' : '❌ MISSING',
-    GOOGLE_AI_API_KEY: process.env.GOOGLE_AI_API_KEY ? '✅ SET (' + process.env.GOOGLE_AI_API_KEY.substring(0, 15) + '...)' : '❌ MISSING',
-    RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID ? '✅ SET' : '❌ MISSING',
-  });
-});
+// API routes (all require authentication)
 app.post('/ai/process', requireAuth, asyncHandler(ai.processMessage));
 app.post('/schedule/add', requireAuth, asyncHandler(schedule.add));
 app.get('/schedule/list', requireAuth, asyncHandler(schedule.list));

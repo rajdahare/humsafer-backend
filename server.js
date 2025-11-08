@@ -105,26 +105,17 @@ app.use((req, res, next) => {
   next();
 });
 
-// Health check endpoint
+// Health check endpoint (public)
 app.get('/health', (req, res) => {
   res.status(200).json({ 
     ok: true, 
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
+    service: 'Humsafer API',
+    environment: process.env.NODE_ENV || 'production'
   });
 });
 
-// Debug endpoint to check API keys (REMOVE in production!)
-app.get('/debug/env', (req, res) => {
-  res.json({
-    XAI_API_KEY: process.env.XAI_API_KEY ? '✅ SET (' + process.env.XAI_API_KEY.substring(0, 15) + '...)' : '❌ MISSING',
-    OPENAI_API_KEY: process.env.OPENAI_API_KEY ? '✅ SET (' + process.env.OPENAI_API_KEY.substring(0, 15) + '...)' : '❌ MISSING',
-    GOOGLE_AI_API_KEY: process.env.GOOGLE_AI_API_KEY ? '✅ SET (' + process.env.GOOGLE_AI_API_KEY.substring(0, 15) + '...)' : '❌ MISSING',
-    RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID ? '✅ SET' : '❌ MISSING',
-  });
-});
-
-// AI endpoints
+// API routes (all require authentication)
 app.post('/ai/process', requireAuth, asyncHandler(ai.processMessage));
 app.post('/voice/intent', requireAuth, asyncHandler(ai.voiceIntent));
 
