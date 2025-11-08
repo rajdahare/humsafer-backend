@@ -45,23 +45,19 @@ try {
   }
 } catch (error) {
   console.warn('⚠️ Firebase Admin initialization failed:', error.message);
+  console.warn('⚠️ Server will start but API endpoints requiring auth will fail');
+  console.warn('⚠️ Add FIREBASE_SERVICE_ACCOUNT environment variable to fix this');
   
-  if (process.env.NODE_ENV === 'production') {
-    console.error('❌ PRODUCTION MODE: Firebase Admin is REQUIRED but failed to initialize!');
-    console.error('❌ Set FIREBASE_SERVICE_ACCOUNT environment variable with service account JSON');
-    // In production, we should fail hard
-    throw new Error('Firebase Admin initialization failed in production');
-  } else {
-    console.warn('⚠️ DEVELOPMENT MODE: Running without Firebase verification');
-    console.warn('⚠️ Users will be allowed to access endpoints with unverified tokens');
-    
-    // Initialize without credentials for development
-    try {
-      admin.initializeApp();
-    } catch (e) {
-      // Already initialized or can't initialize - that's okay in dev mode
-    }
+  // Try to initialize without credentials (allows health check to work)
+  try {
+    admin.initializeApp();
+    console.warn('⚠️ Firebase initialized without credentials - auth endpoints will not work');
+  } catch (e) {
+    // Already initialized or can't initialize
+    console.warn('⚠️ Firebase could not initialize:', e.message);
   }
+  
+  firebaseInitialized = false;
 }
 
 console.log('[server] Environment:', process.env.NODE_ENV);
