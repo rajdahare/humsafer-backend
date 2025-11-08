@@ -197,13 +197,15 @@ async function list(req, res) {
         createdAt: new Date()
       }
     ];
-    return ok(res, mockSchedules);
+    // Wrap in object for consistent API response
+    return res.json({ schedules: mockSchedules });
   }
   
   try {
     const snap = await db.collection('users').doc(uid).collection('schedule').orderBy('datetime', 'asc').get();
     const out = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    return ok(res, out);
+    // Wrap in object for consistent API response
+    return res.json({ schedules: out });
   } catch (e) {
     console.error('[Schedule] Firestore error:', e.message);
     return res.status(500).json({ error: 'Failed to fetch schedules', detail: e.message });
