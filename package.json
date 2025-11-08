@@ -5,10 +5,10 @@
   "engines": {
     "node": "20"
   },
-  "main": "server.js",
+  "main": "api/index.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "NODE_ENV=development node server.js",
+    "start": "node server.local.js",
+    "dev": "NODE_ENV=development node server.local.js",
     "serve": "firebase emulators:start --only functions",
     "deploy:firebase": "firebase deploy --only functions,firestore:rules,storage:rules",
     "deploy:vercel": "vercel --prod",

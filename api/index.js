@@ -1,32 +1,26 @@
 // Vercel Serverless Function Entry Point
-require('dotenv').config();
 const admin = require('firebase-admin');
 const express = require('express');
 const cors = require('cors');
 
-// Initialize Firebase Admin
+// Initialize Firebase Admin (only once)
 let firebaseInitialized = false;
 
-try {
-  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount)
-    });
-    firebaseInitialized = true;
-    console.log('✅ Firebase Admin initialized from environment');
-  } else if (!admin.apps.length) {
-    admin.initializeApp();
-    console.log('⚠️ Firebase initialized without credentials');
-  }
-} catch (error) {
-  console.warn('⚠️ Firebase initialization failed:', error.message);
+if (!admin.apps.length) {
   try {
-    if (!admin.apps.length) {
+    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+      const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount)
+      });
+      firebaseInitialized = true;
+      console.log('✅ Firebase initialized from environment');
+    } else {
       admin.initializeApp();
+      console.log('⚠️ Firebase initialized without credentials');
     }
-  } catch (e) {
-    // Ignore
+  } catch (error) {
+    console.warn('⚠️ Firebase initialization failed:', error.message);
   }
 }
 

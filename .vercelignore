@@ -1,0 +1,10 @@
+# Files to ignore during Vercel deployment
+index.firebase.js
+server.local.js
+service-account-key.json
+.env
+.env.local
+*.md
+test-*.js
+node_modules
+
