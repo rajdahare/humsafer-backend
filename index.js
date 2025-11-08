@@ -22,8 +22,25 @@ const razorpay = require('./razorpay');
 const auth = require('./auth');
 
 const app = express();
-app.use(cors({ origin: true }));
-app.options('*', cors());
+
+// CORS Configuration for Production (Vercel)
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps, Postman, curl)
+    if (!origin) return callback(null, true);
+    
+    // Allow all origins in production (adjust if you want specific origins)
+    callback(null, true);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-demo', 'firebase-auth-token'],
+  exposedHeaders: ['Content-Length', 'Content-Type'],
+  maxAge: 86400 // 24 hours
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // Handle preflight requests for all routes
 app.use(express.json({ limit: '10mb' }));
 
 // Health check endpoint (public)
