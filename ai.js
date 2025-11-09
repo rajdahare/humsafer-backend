@@ -623,12 +623,41 @@ function detectBackgroundAction(userMessage, aiResponse) {
     };
   }
   
-  // Detect "call" actions
-  const callMatch = lowerMsg.match(/call\s+(\w+)|(\w+)\s+ko\s+call/i);
-  if (callMatch) {
+  // Detect "call" actions - supports both names and phone numbers
+  const callMatch = lowerMsg.match(/call\s+(\w+)|(\w+)\s+ko\s+call|call\s+on|dial|phone/i);
+  if (callMatch || lowerMsg.includes('call')) {
+    // Try to extract phone number first (priority over name)
+    const phoneMatch = userMessage.match(/\+?\d{1,3}[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\d{10}|\+\d{11,13}/);
+    
+    if (phoneMatch) {
+      // Phone number found - call directly
+      return {
+        type: 'make_call',
+        data: { 
+          phone: phoneMatch[0],
+          contact: null
+        },
+        message: `Calling ${phoneMatch[0]}...`
+      };
+    }
+    
+    // No phone number, try to extract contact name
+    const nameMatch = lowerMsg.match(/call\s+(\w+)|(\w+)\s+ko\s+call/i);
+    if (nameMatch) {
+      return {
+        type: 'make_call',
+        data: { 
+          contact: nameMatch[1] || nameMatch[2],
+          phone: null
+        },
+        message: `Calling ${nameMatch[1] || nameMatch[2]}...`
+      };
+    }
+    
+    // Generic call command - just open phone
     return {
       type: 'make_call',
-      data: { contact: callMatch[1] || callMatch[2] },
+      data: {},
       message: 'Opening phone...'
     };
   }
