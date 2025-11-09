@@ -784,14 +784,17 @@ function detectBackgroundAction(userMessage, aiResponse) {
     };
   }
   
-  // Detect "call" actions - supports both names and phone numbers
-  const callMatch = lowerMsg.match(/call\s+(\w+)|(\w+)\s+ko\s+call|call\s+on|dial|phone/i);
-  if (callMatch || lowerMsg.includes('call')) {
+  // Detect "call" actions - supports both names and phone numbers (SIRI-LIKE)
+  const callMatch = lowerMsg.match(/call\s+|dial\s+|phone\s+|ko\s+call/i);
+  if (callMatch || lowerMsg.includes('call') || lowerMsg.includes('phone') || lowerMsg.includes('dial')) {
+    console.log('[AI] Call intent detected!');
+    
     // Try to extract phone number first (priority over name)
     const phoneMatch = userMessage.match(/\+?\d{1,3}[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\d{10}|\+\d{11,13}/);
     
     if (phoneMatch) {
       // Phone number found - call directly
+      console.log('[AI] Phone number detected:', phoneMatch[0]);
       return {
         type: 'make_call',
         data: { 
@@ -802,20 +805,37 @@ function detectBackgroundAction(userMessage, aiResponse) {
       };
     }
     
-    // No phone number, try to extract contact name
-    const nameMatch = lowerMsg.match(/call\s+(\w+)|(\w+)\s+ko\s+call/i);
+    // No phone number, try to extract contact name (SUPPORTS MULTI-WORD NAMES!)
+    // Patterns: "call John Smith", "John Smith ko call", "phone Sarah Jane"
+    
+    // Pattern 1: "call [Full Name]" or "phone [Full Name]" or "dial [Full Name]"
+    let nameMatch = userMessage.match(/(?:call|phone|dial)\s+([A-Za-z]+(?:\s+[A-Za-z]+)*?)(?:\s+(?:at|on|please|now|sir|mam|ma'am)|$)/i);
+    
+    // Pattern 2: "[Full Name] ko call" (Hindi)
+    if (!nameMatch) {
+      nameMatch = userMessage.match(/([A-Za-z]+(?:\s+[A-Za-z]+)*?)\s+ko\s+call/i);
+    }
+    
+    // Pattern 3: Simple "call [word]" as fallback
+    if (!nameMatch) {
+      nameMatch = userMessage.match(/(?:call|phone|dial)\s+([A-Za-z]+)/i);
+    }
+    
     if (nameMatch) {
+      const contactName = nameMatch[1].trim();
+      console.log('[AI] Contact name extracted:', contactName);
       return {
         type: 'make_call',
         data: { 
-          contact: nameMatch[1] || nameMatch[2],
+          contact: contactName,
           phone: null
         },
-        message: `Calling ${nameMatch[1] || nameMatch[2]}...`
+        message: `Calling ${contactName}...`
       };
     }
     
     // Generic call command - just open phone
+    console.log('[AI] Generic call - opening phone app');
     return {
       type: 'make_call',
       data: {},
