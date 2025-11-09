@@ -23,7 +23,7 @@ Backend API for Humsafer - Your AI companion mobile application.
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/YOUR_USERNAME/humsafer-backend.git
+git clone https://github.com/rajdahare/humsafer-backend.git
 cd humsafer-backend
 ```
 
