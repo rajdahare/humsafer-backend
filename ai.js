@@ -352,6 +352,156 @@ Today is ${new Date().toISOString()}.`;
   }
 }
 
+// Helper function to handle Google Meet scheduling
+async function handleGoogleMeetIntent(req, res, message, tier) {
+  const uid = req.userId;
+  
+  try {
+    // Use AI to extract meet details (similar to scheduling)
+    const extractionPrompt = `Extract the following from this Google Meet scheduling request: "${message}"
+    
+Return ONLY a JSON object with these fields:
+{
+  "title": "brief title for the meeting",
+  "datetime": "ISO 8601 datetime string",
+  "attendees": ["list", "of", "attendee", "names"],
+  "description": "any additional details"
+}
+
+If you can't determine exact time, use next available hour. If date is relative (today, tomorrow), calculate actual date.
+Today is ${new Date().toISOString()}.`;
+
+    let extractedData = null;
+    
+    // Try to extract using available AI
+    if (GOOGLE_AI_API_KEY) {
+      const aiResponse = await callGemini(extractionPrompt);
+      try {
+        extractedData = JSON.parse(aiResponse);
+      } catch (e) {
+        console.log('[GoogleMeet] AI response parsing failed, using fallback');
+      }
+    }
+    
+    // Fallback: Simple parsing
+    if (!extractedData) {
+      const now = new Date();
+      let scheduledTime = new Date();
+      
+      // Extract time
+      let timeMatch = message.match(/(\d{1,2})\s*(pm|am|baje)/i);
+      if (!timeMatch) {
+        timeMatch = message.match(/(\d{1,2}):(\d{2})/);
+      }
+      
+      if (timeMatch) {
+        let hour = parseInt(timeMatch[1]);
+        if (timeMatch[2] && timeMatch[2].toLowerCase() === 'pm' && hour < 12) {
+          hour += 12;
+        }
+        if (timeMatch[2] && timeMatch[2].toLowerCase() === 'am' && hour === 12) {
+          hour = 0;
+        }
+        if (hour >= 1 && hour <= 7 && !timeMatch[2]) {
+          hour += 12;
+        }
+        scheduledTime.setHours(hour, timeMatch[3] ? parseInt(timeMatch[3]) : 0, 0, 0);
+      }
+      
+      // Check for "today", "tomorrow"
+      const lower = message.toLowerCase();
+      if (lower.includes('tomorrow') || lower.includes('kal')) {
+        scheduledTime.setDate(scheduledTime.getDate() + 1);
+      }
+      
+      // Extract attendees (people mentioned)
+      const attendees = [];
+      const personMatches = message.match(/with\s+(\w+)|(\ w+)\s+ke\s+sath/gi);
+      if (personMatches) {
+        personMatches.forEach(match => {
+          const name = match.replace(/with|ke sath/gi, '').trim();
+          if (name) attendees.push(name);
+        });
+      }
+      
+      // Extract title
+      let title = 'Google Meet';
+      const topicMatch = message.match(/topic\s+(\w+)|about\s+(\w+)/i);
+      if (topicMatch) {
+        title = `${topicMatch[1] || topicMatch[2]} - Google Meet`;
+      } else if (attendees.length > 0) {
+        title = `Meet with ${attendees.join(', ')}`;
+      }
+      
+      extractedData = {
+        title: title,
+        datetime: scheduledTime.toISOString(),
+        attendees: attendees,
+        description: `Video meeting via Google Meet. ${message}`,
+      };
+    }
+    
+    // Add to schedule in Firestore
+    const scheduleRef = await db.collection('users').doc(uid).collection('schedule').add({
+      title: extractedData.title,
+      datetime: extractedData.datetime,
+      note: extractedData.description || '',
+      type: 'google_meet',
+      attendees: extractedData.attendees || [],
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    
+    // Format response
+    const scheduleTime = new Date(extractedData.datetime);
+    const timeStr = scheduleTime.toLocaleTimeString('en-IN', { 
+      hour: 'numeric', 
+      minute: '2-digit',
+      hour12: true 
+    });
+    const dateStr = scheduleTime.toLocaleDateString('en-IN', { 
+      month: 'long', 
+      day: 'numeric' 
+    });
+    
+    const attendeesList = extractedData.attendees && extractedData.attendees.length > 0
+      ? ` with ${extractedData.attendees.join(', ')}`
+      : '';
+    
+    const response = `Perfect! I've scheduled a Google Meet "${extractedData.title}"${attendeesList} for ${dateStr} at ${timeStr}. The meeting has been added to your calendar with a Google Meet link, and you'll get a reminder 10 minutes before the meeting starts.`;
+    
+    // Log the action
+    await db.collection('users').doc(uid).collection('ai_logs').add({
+      text: message,
+      response: response,
+      action: 'google_meet.create',
+      scheduleId: scheduleRef.id,
+      mode: req.body.mode || 'general',
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    
+    // Return with Google Meet creation action
+    return ok(res, { 
+      response, 
+      action: 'google_meet.create', 
+      scheduleId: scheduleRef.id,
+      backgroundAction: {
+        type: 'create_google_meet',
+        data: {
+          title: extractedData.title,
+          startTime: extractedData.datetime,
+          description: extractedData.description || message,
+          attendees: extractedData.attendees || [],
+        },
+        message: 'Creating Google Meet and adding to calendar...'
+      }
+    });
+  } catch (e) {
+    console.error('[handleGoogleMeetIntent] Error:', e);
+    // Fallback to regular AI response
+    return processMessage(req, res);
+  }
+}
+
 async function processMessage(req, res) {
   const uid = req.userId;
   const { message, mode, conversationHistory, tierLevel } = req.body || {};
@@ -382,6 +532,10 @@ async function processMessage(req, res) {
   // Check for scheduling intent (supports English + Hindi/Hinglish)
   const lowerMessage = message.toLowerCase();
   
+  // Check for Google Meet specific request
+  const googleMeetKeywords = ['google meet', 'meet', 'video call', 'video meeting', 'online meeting'];
+  const hasGoogleMeet = googleMeetKeywords.some(kw => lowerMessage.includes(kw));
+  
   // Keywords for scheduling (English + Hindi)
   const scheduleKeywords = ['add', 'create', 'schedule', 'krdo', 'karna', 'lagao', 'set'];
   const scheduleTargets = ['meeting', 'reminder', 'calendar', 'calender', 'event', 'appointment', 'मीटिंग'];
@@ -389,6 +543,13 @@ async function processMessage(req, res) {
   const hasScheduleAction = scheduleKeywords.some(kw => lowerMessage.includes(kw));
   const hasScheduleTarget = scheduleTargets.some(kw => lowerMessage.includes(kw));
   
+  // Handle Google Meet scheduling
+  if (hasGoogleMeet && hasScheduleAction) {
+    console.log('[AI] Google Meet scheduling intent detected!');
+    return await handleGoogleMeetIntent(req, res, message, tier);
+  }
+  
+  // Handle regular scheduling
   if (hasScheduleAction && hasScheduleTarget) {
     console.log('[AI] Scheduling intent detected!');
     return await handleSchedulingIntent(req, res, message, tier);
