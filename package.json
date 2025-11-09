@@ -7,7 +7,7 @@
   },
   "main": "api/index.js",
   "scripts": {
-    "start": "node server.local.js",
+    "start": "nodemon server.local.js",
     "dev": "NODE_ENV=development node server.local.js",
     "serve": "firebase emulators:start --only functions",
     "deploy:firebase": "firebase deploy --only functions,firestore:rules,storage:rules",
@@ -24,6 +24,7 @@
     "firebase-admin": "^12.3.0",
     "firebase-functions": "^5.0.0",
     "node-fetch": "^3.3.2",
+    "nodemon": "^3.1.10",
     "openai": "^4.28.0",
     "razorpay": "^2.9.6",
     "stripe": "^14.21.0",

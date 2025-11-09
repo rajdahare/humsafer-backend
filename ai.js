@@ -3,6 +3,7 @@ const { OpenAI } = require('openai');
 // Node 20+ has native fetch, no need for node-fetch
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { ok } = require('./utils');
+const { checkMessageLimit, incrementMessageCount, getRemainingQuota } = require('./usage-limits');
 
 const db = admin.firestore();
 
@@ -329,7 +330,21 @@ Today is ${new Date().toISOString()}.`;
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
     
-    return ok(res, { response, action: 'schedule.add', scheduleId: scheduleRef.id });
+    // Return with both schedule.add action and calendar event creation action
+    return ok(res, { 
+      response, 
+      action: 'schedule.add', 
+      scheduleId: scheduleRef.id,
+      backgroundAction: {
+        type: 'create_calendar_event',
+        data: {
+          title: extractedData.title,
+          startTime: extractedData.datetime,
+          description: extractedData.note || message,
+        },
+        message: 'Adding to device calendar...'
+      }
+    });
   } catch (e) {
     console.error('[handleSchedulingIntent] Error:', e);
     // Fallback to regular AI response
@@ -342,11 +357,27 @@ async function processMessage(req, res) {
   const { message, mode, conversationHistory, tierLevel } = req.body || {};
   if (!message) return res.status(400).json({ error: 'message required' });
 
-  const tier = tierLevel || 'tier1';
+  const tier = tierLevel || 'free';  // Default to free tier if not specified
   const hasGrokKey = !!process.env.XAI_API_KEY;
   const hasOpenAIKey = !!OPENAI_API_KEY;
   
   console.log(`[processMessage] tier: ${tier}, mode: ${mode}, hasGrokKey: ${hasGrokKey}, hasOpenAIKey: ${hasOpenAIKey}`);
+  
+  // ===== USAGE LIMITS CHECK (prevent abuse and control costs) =====
+  const limitCheck = await checkMessageLimit(uid, tier);
+  
+  if (!limitCheck.allowed) {
+    console.log(`[processMessage] ⛔ Message blocked: ${limitCheck.reason}`);
+    return res.status(429).json({
+      error: 'limit_exceeded',
+      message: limitCheck.reason,
+      remainingTotal: limitCheck.remainingTotal,
+      remainingToday: limitCheck.remainingToday,
+      usage: limitCheck.usage,
+    });
+  }
+  
+  console.log(`[processMessage] ✅ Usage check passed. Remaining: ${limitCheck.remainingTotal} total, ${limitCheck.remainingToday} today`);
 
   // Check for scheduling intent (supports English + Hindi/Hinglish)
   const lowerMessage = message.toLowerCase();
@@ -492,6 +523,24 @@ async function processMessage(req, res) {
     });
   }
 
+  // ===== INCREMENT USAGE COUNT =====
+  try {
+    await incrementMessageCount(uid);
+    console.log(`[processMessage] ✅ Usage count incremented for user: ${uid}`);
+  } catch (usageErr) {
+    console.error('[processMessage] Error incrementing usage:', usageErr.message);
+    // Non-fatal - continue
+  }
+  
+  // ===== GET REMAINING QUOTA =====
+  let quota = null;
+  try {
+    quota = await getRemainingQuota(uid, tier);
+    console.log(`[processMessage] Remaining quota: ${quota.totalRemaining} total, ${quota.todayRemaining} today`);
+  } catch (quotaErr) {
+    console.error('[processMessage] Error getting quota:', quotaErr.message);
+  }
+
   try {
     await db
       .collection('users')
@@ -513,7 +562,8 @@ async function processMessage(req, res) {
   
   return ok(res, { 
     response: result,
-    action: action || undefined  // Include action if detected
+    action: action || undefined,  // Include action if detected
+    quota: quota || undefined,     // Include remaining quota
   });
 }
 
