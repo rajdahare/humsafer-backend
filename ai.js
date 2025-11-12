@@ -78,7 +78,7 @@ async function callGrok(prompt, conversationHistory = []) {
         model: 'grok-2-1212', 
         messages: messages,
         temperature: 0.7,
-        max_tokens: 1000,
+        max_tokens: 400,
       }),
     });
     
@@ -504,14 +504,14 @@ Today is ${new Date().toISOString()}.`;
 
 async function processMessage(req, res) {
   const uid = req.userId;
-  const { message, mode, conversationHistory, tierLevel } = req.body || {};
+  const { message, mode, conversationHistory, tierLevel, fast, replyStyle } = req.body || {};
   if (!message) return res.status(400).json({ error: 'message required' });
 
   const tier = tierLevel || 'free';  // Default to free tier if not specified
   const hasGrokKey = !!process.env.XAI_API_KEY;
   const hasOpenAIKey = !!OPENAI_API_KEY;
   
-  console.log(`[processMessage] tier: ${tier}, mode: ${mode}, hasGrokKey: ${hasGrokKey}, hasOpenAIKey: ${hasOpenAIKey}`);
+  console.log(`[processMessage] tier: ${tier}, mode: ${mode}, fast: ${!!fast}, replyStyle: ${replyStyle || 'default'}, hasGrokKey: ${hasGrokKey}, hasOpenAIKey: ${hasOpenAIKey}`);
   
   // ===== USAGE LIMITS CHECK (prevent abuse and control costs) =====
   const limitCheck = await checkMessageLimit(uid, tier);
@@ -632,21 +632,39 @@ async function processMessage(req, res) {
       
       console.log('[processMessage] General mode for tier:', tier);
       
-      // Use Grok as primary (now has credits!)
-      if (hasGrokKey) {
-        console.log('[processMessage] ✅ Using Grok AI for general mode (primary)');
-        // Add current user message to history
+      // Prefer faster providers when fast=true
+      if (fast && hasOpenAIKey) {
+        console.log('[processMessage] ⚡ fast=true → Using OpenAI first');
+        result = await callOpenAI(`${systemPrompt}\n\nConversation history:\n${JSON.stringify(history)}\n\nUser: ${message}`);
+        console.log(`[processMessage] OpenAI result: ${result ? 'success' : 'failed'}`);
+      }
+      
+      // If not fast or OpenAI failed, try Grok next (if available)
+      if (!result && hasGrokKey) {
+        console.log('[processMessage] Using Grok AI');
         const grokHistory = [...fullHistory, { role: 'user', content: message }];
         result = await callGrok(message, grokHistory);
         console.log(`[processMessage] Grok result: ${result ? 'success' : 'failed'}`);
       }
       
-      // Fallback to OpenAI if Grok fails
-      if (!result && hasOpenAIKey) {
-        console.log('[processMessage] Fallback to OpenAI for general mode');
+      // Fallback to OpenAI if Grok failed and we didn't try OpenAI yet
+      if (!result && hasOpenAIKey && !fast) {
+        console.log('[processMessage] Fallback to OpenAI');
         result = await callOpenAI(`${systemPrompt}\n\nConversation history:\n${JSON.stringify(history)}\n\nUser: ${message}`);
         console.log(`[processMessage] OpenAI result: ${result ? 'success' : 'failed'}`);
       }
+      
+      // Final fallback: Gemini if available
+      if (!result && GOOGLE_AI_API_KEY) {
+        console.log('[processMessage] Fallback to Gemini');
+        result = await callGemini(`${systemPrompt}\n\nConversation history:\n${JSON.stringify(history)}\n\nUser: ${message}`);
+        console.log(`[processMessage] Gemini result: ${result ? 'success' : 'failed'}`);
+      }
+    }
+    
+    // Apply reply style shortening if requested
+    if (replyStyle === 'short' && result) {
+      result = shortenToTwoSentences(result);
     }
     
     console.log(`[processMessage] Final result length: ${result?.length || 0}`);
@@ -894,5 +912,24 @@ async function voiceIntent(req, res) {
 }
 
 module.exports = { processMessage, voiceIntent };
+
+
+
+function shortenToTwoSentences(text) {
+  try {
+    const t = (text || '').trim();
+    if (!t) return t;
+    // Split by sentence terminators including Hindi full stop
+    const parts = t.split(/(?<=[\.\!\?।])\s+/).filter(Boolean);
+    const firstTwo = parts.slice(0, 2).join(' ');
+    // Ensure not overly long
+    if (firstTwo.length < 20 && parts.length > 0) {
+      return parts[0];
+    }
+    return firstTwo;
+  } catch (_) {
+    return text;
+  }
+}
 
 
