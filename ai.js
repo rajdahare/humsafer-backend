@@ -67,7 +67,7 @@ async function callGrok(prompt, conversationHistory = []) {
       messages = [{ role: 'user', content: prompt }];
     }
     
-    console.log('🚀 [Grok] Calling API with model: grok-2-1212');
+    console.log('🚀 [Grok] Calling API with model: grok-4');
     const resp = await fetch('https://api.x.ai/v1/chat/completions', {
       method: 'POST',
       headers: { 
@@ -75,10 +75,10 @@ async function callGrok(prompt, conversationHistory = []) {
         Authorization: `Bearer ${apiKey}` 
       },
       body: JSON.stringify({ 
-        model: 'grok-2-1212', 
+        model: 'grok-4', 
         messages: messages,
         temperature: 0.7,
-        max_tokens: 400,
+        max_tokens: 800,  // Increased for better responses
       }),
     });
     
