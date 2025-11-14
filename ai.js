@@ -21,17 +21,18 @@ async function callOpenAI(prompt, history = [], fast = false) {
     return '';
   }
   try {
-    // Build messages efficiently
-    const messages = history.length > 0 ? history : [{ role: 'user', content: prompt }];
+    // ⚡ INSTANT: Limit history to last 2 messages for speed
+    const messages = history.length > 0 ? history.slice(-2) : [{ role: 'user', content: prompt }];
     
-    // ⚡ SPEED OPTIMIZATION: Reduce tokens for faster responses
-    const maxTokens = fast ? 150 : 300;  // Much faster than 800!
+    // ⚡ ULTRA-FAST: Minimal tokens for instant responses
+    const maxTokens = fast ? 100 : 200;  // Very short = faster!
     
     const resp = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: messages,
-      temperature: 0.5,  // Lower = faster, more focused
-      max_tokens: maxTokens,  // Limit response length for speed
+      temperature: 0.3,  // Lower = faster, more deterministic
+      max_tokens: maxTokens,
+      top_p: 0.8,  // More focused
     });
     return resp.choices?.[0]?.message?.content || '';
   } catch (e) {
@@ -48,36 +49,41 @@ async function callGrok(prompt, conversationHistory = [], fast = false) {
   const apiKey = process.env.XAI_API_KEY;
   
   if (!apiKey) {
-    console.error('❌ [Grok] XAI_API_KEY not found');
+    console.error('❌ [Grok] XAI_API_KEY not found in environment');
     return '';
   }
   
   try {
-    // Build messages efficiently
+    // ⚡ INSTANT RESPONSE: Limit history to last 2 messages only (reduces processing time)
     let messages = [];
     if (conversationHistory && conversationHistory.length > 0) {
-      messages = conversationHistory;
+      // Keep only last 2 messages for speed
+      messages = conversationHistory.slice(-2);
     } else {
       messages = [{ role: 'user', content: prompt }];
     }
     
-    // ⚡ SPEED OPTIMIZATION: Reduce tokens for faster responses
-    const maxTokens = fast ? 150 : 250;  // Much faster than 800!
+    // ⚡ ULTRA-FAST: Minimal tokens for instant responses
+    const maxTokens = fast ? 80 : 120;  // Very short responses = faster!
+    
+    console.log(`[Grok] ⚡ INSTANT MODE: grok-4, tokens: ${maxTokens}, history: ${messages.length}`);
     
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000); // 8s timeout
+    const timeout = setTimeout(() => controller.abort(), 6000); // 6s timeout (faster fail)
     
     const resp = await fetch('https://api.x.ai/v1/chat/completions', {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json', 
-        Authorization: `Bearer ${apiKey}` 
+        'Authorization': `Bearer ${apiKey}` 
       },
       body: JSON.stringify({ 
         model: 'grok-4', 
         messages: messages,
-        temperature: 0.5,  // Lower = faster, more focused
-        max_tokens: maxTokens,  // Reduced for speed
+        temperature: 0.3,  // Lower = faster, more deterministic
+        max_tokens: maxTokens,  // Minimal tokens
+        top_p: 0.8,  // More focused
+        stream: false,  // Non-streaming is faster for short responses
       }),
       signal: controller.signal
     });
@@ -85,19 +91,26 @@ async function callGrok(prompt, conversationHistory = [], fast = false) {
     clearTimeout(timeout);
     
     if (!resp.ok) {
-      console.error(`❌ [Grok] API error: ${resp.status}`);
+      const errorText = await resp.text();
+      console.error(`❌ [Grok] API error ${resp.status}:`, errorText.substring(0, 200));
       return '';
     }
     
     const data = await resp.json();
     const result = data.choices?.[0]?.message?.content || '';
-    console.log(`✅ [Grok] Response: ${result.length} chars`);
+    
+    if (!result || result.trim() === '') {
+      console.error('❌ [Grok] Empty response');
+      return '';
+    }
+    
+    console.log(`✅ [Grok] INSTANT! ${result.length} chars`);
     return result;
   } catch (e) {
     if (e.name === 'AbortError') {
-      console.error('❌ [Grok] Timeout after 8s');
+      console.error('❌ [Grok] Timeout after 6s');
     } else {
-      console.error('❌ [Grok] Error:', e.message);
+      console.error(`❌ [Grok] Error:`, e.message);
     }
     return '';
   }
@@ -112,57 +125,81 @@ async function callGemini(prompt, modelName = 'models/gemini-2.5-flash', fast = 
     return '';
   }
   try {
-    // ⚡ ULTRA-FAST: models/gemini-2.5-flash (NEWEST, requires "models/" prefix)
-    console.log(`[Gemini] 🚀 Using: ${modelName}, fast: ${fast}`);
-    
+    // ⚡ INSTANT RESPONSE: Ultra-optimized settings for speed
     const model = genAI.getGenerativeModel({ 
       model: modelName,
       generationConfig: {
-        temperature: 0.5,
-        maxOutputTokens: fast ? 150 : 300,
-        topP: 0.85,
-        topK: 40,
+        temperature: 0.3,  // Lower = faster, more deterministic
+        maxOutputTokens: fast ? 100 : 200,  // Minimal tokens for instant responses
+        topP: 0.8,  // More focused
+        topK: 20,   // Fewer choices = faster
       },
     });
     
-    console.log(`[Gemini] 📤 Sending ${prompt.length} chars...`);
-    
+    console.log(`[Gemini] 📤 Calling ${modelName} with ${prompt.length} chars...`);
     const result = await model.generateContent(prompt);
-    const text = result.response.text();
+    const text = result.response?.text();
     
-    console.log(`✅ [Gemini 2.5 Flash] SUCCESS! ${text?.length || 0} chars`);
-    console.log(`[Gemini] Preview: ${text?.substring(0, 80)}...`);
+    if (!text || text.trim() === '') {
+      console.error(`❌ [${modelName}] Empty response from API`);
+      console.error(`[Gemini] Full result:`, JSON.stringify(result, null, 2));
+      // Try fallback
+      throw new Error('Empty response from primary model');
+    }
     
-    return text || '';
+    console.log(`✅ [Gemini] INSTANT! ${text.length} chars`);
+    return text;
   } catch (e) {
     console.error(`❌ [${modelName}] Error:`, e.message);
+    console.error(`[Gemini] Error details:`, e.stack);
     
-    // Smart fallback chain: 2.5 > 2.0 > flash-latest
-    const fallbackModels = ['models/gemini-2.0-flash', 'models/gemini-flash-latest'];
-    
-    for (const fallbackModel of fallbackModels) {
-      if (modelName === fallbackModel) continue;
-      
+    // Quick fallback to 2.0-flash (tested working)
+    if (modelName !== 'models/gemini-2.0-flash') {
       try {
-        console.log(`[Gemini] 🔄 Trying ${fallbackModel}...`);
+        console.log(`[Gemini] 🔄 Trying fallback: models/gemini-2.0-flash`);
         const model = genAI.getGenerativeModel({ 
-          model: fallbackModel,
+          model: 'models/gemini-2.0-flash',
           generationConfig: {
-            temperature: 0.6,
-            maxOutputTokens: fast ? 150 : 300,
+            temperature: 0.3,
+            maxOutputTokens: fast ? 100 : 200,
           },
         });
         const result = await model.generateContent(prompt);
-        const text = result.response.text();
-        console.log(`✅ [${fallbackModel}] SUCCESS! ${text?.length || 0} chars`);
-        return text || '';
-      } catch (fallbackError) {
-        console.error(`❌ [${fallbackModel}] Failed:`, fallbackError.message);
-        continue;
+        const text = result.response?.text();
+        if (text && text.trim()) {
+          console.log(`✅ [Gemini 2.0] Fallback success! ${text.length} chars`);
+          return text;
+        } else {
+          console.error(`❌ [Gemini 2.0] Fallback also returned empty`);
+        }
+      } catch (fallbackErr) {
+        console.error(`❌ [Gemini 2.0] Fallback error:`, fallbackErr.message);
       }
     }
     
-    return ''; // All fallbacks failed
+    // Last fallback: try gemini-1.5-flash
+    if (modelName !== 'models/gemini-1.5-flash') {
+      try {
+        console.log(`[Gemini] 🔄 Trying last fallback: models/gemini-1.5-flash`);
+        const model = genAI.getGenerativeModel({ 
+          model: 'models/gemini-1.5-flash',
+          generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: fast ? 100 : 200,
+          },
+        });
+        const result = await model.generateContent(prompt);
+        const text = result.response?.text();
+        if (text && text.trim()) {
+          console.log(`✅ [Gemini 1.5] Last fallback success! ${text.length} chars`);
+          return text;
+        }
+      } catch (_) {
+        // Ignore last fallback error
+      }
+    }
+    
+    return '';
   }
 }
 
@@ -589,12 +626,12 @@ async function processMessage(req, res) {
 
   let result = '';
   try {
-    // ⚡ SPEED OPTIMIZATION: Limit conversation history to last 5 messages (not 20!)
-    // This drastically reduces prompt size and speeds up AI processing
+    // ⚡ INSTANT RESPONSE: Limit to last 2 messages only (ultra-fast!)
+    // This makes AI respond instantly by reducing processing time
     let history = conversationHistory || [];
-    if (history.length > 5) {
-      console.log(`[processMessage] ⚡ Trimming history from ${history.length} to 5 messages for speed`);
-      history = history.slice(-5); // Keep only last 5 messages
+    if (history.length > 2) {
+      console.log(`[processMessage] ⚡ INSTANT: Trimming history from ${history.length} to 2 messages`);
+      history = history.slice(-2); // Keep only last 2 messages for speed
     }
     
     // AI Provider Selection Based on Tier & Speed
@@ -639,40 +676,57 @@ async function processMessage(req, res) {
         { role: 'user', content: message }
       ];
       
-      // ⚡ SPEED STRATEGY: Try fastest AI first based on availability
-      // Gemini 1.5 Flash (STABLE) > OpenAI > Grok (in order of speed)
+      // ⚡ INSTANT RESPONSE STRATEGY: Always use FASTEST AI first!
+      // Priority: Gemini 2.5 Flash (FASTEST) > OpenAI (FAST) > Grok (SLOW - only for night mode)
       
-      if (fast || !hasGrokKey) {
-        // Fast mode: Use Gemini 2.5 Flash (NEWEST, FASTEST) or OpenAI
-        if (GOOGLE_AI_API_KEY) {
-          console.log('[processMessage] ⚡ NEWEST: Using Gemini 2.5 Flash');
+      // ALWAYS try Gemini first (FASTEST) - for ALL users, ALL modes
+      if (GOOGLE_AI_API_KEY) {
+        console.log('[processMessage] ⚡ INSTANT: Using Gemini 2.5 Flash (FASTEST)');
+        try {
           // Simple prompt for speed
           const simplePrompt = `${systemPrompt}\nRecent: ${history.slice(-2).map(h => `${h.role}: ${h.content}`).join('\n')}\nUser: ${message}\nAssistant:`;
           result = await callGemini(simplePrompt, 'models/gemini-2.5-flash', true);
+          if (result && result.trim()) {
+            console.log(`[processMessage] ✅ Gemini success: ${result.length} chars`);
+          } else {
+            console.error('[processMessage] ❌ Gemini returned empty result');
+          }
+        } catch (geminiErr) {
+          console.error('[processMessage] ❌ Gemini error:', geminiErr.message);
+          result = '';
         }
-        
-        // Fallback to OpenAI if Gemini fails
-        if (!result && hasOpenAIKey) {
-          console.log('[processMessage] ⚡ Using OpenAI');
+      }
+      
+      // Fallback to OpenAI if Gemini fails (also fast)
+      if (!result && hasOpenAIKey) {
+        console.log('[processMessage] ⚡ Fallback: Using OpenAI (FAST)');
+        try {
           result = await callOpenAI(message, fullHistory, true);
+          if (result && result.trim()) {
+            console.log(`[processMessage] ✅ OpenAI success: ${result.length} chars`);
+          } else {
+            console.error('[processMessage] ❌ OpenAI returned empty result');
+          }
+        } catch (openaiErr) {
+          console.error('[processMessage] ❌ OpenAI error:', openaiErr.message);
+          result = '';
         }
-      } else {
-        // Normal mode: Try Grok first for premium users
-        if (hasGrokKey && (tier === 'tier2' || tier === 'tier3')) {
-          console.log('[processMessage] Using Grok AI');
-          result = await callGrok(message, fullHistory, fast);
-        }
-        
-        // Fallback chain: OpenAI -> Gemini 2.5 Flash
-        if (!result && hasOpenAIKey) {
-          console.log('[processMessage] Using OpenAI');
-          result = await callOpenAI(message, fullHistory, fast);
-        }
-        
-        if (!result && GOOGLE_AI_API_KEY) {
-          console.log('[processMessage] Using Gemini 2.5 Flash');
-          const simplePrompt = `${systemPrompt}\nRecent: ${history.slice(-2).map(h => `${h.role}: ${h.content}`).join('\n')}\nUser: ${message}`;
-          result = await callGemini(simplePrompt, 'models/gemini-2.5-flash', fast);
+      }
+      
+      // LAST RESORT: Use Grok if both Gemini and OpenAI failed (available for all users as fallback)
+      if (!result && hasGrokKey) {
+        console.log('[processMessage] ⚠️ Last resort: Using Grok (all tiers)');
+        try {
+          result = await callGrok(message, fullHistory, true);
+          if (result && result.trim()) {
+            console.log(`[processMessage] ✅ Grok success: ${result.length} chars`);
+          } else {
+            console.error('[processMessage] ❌ Grok returned empty result');
+          }
+        } catch (grokErr) {
+          console.error('[processMessage] ❌ Grok error:', grokErr.message);
+          console.error('[processMessage] Grok error stack:', grokErr.stack);
+          result = '';
         }
       }
     }
