@@ -103,7 +103,7 @@ async function callGrok(prompt, conversationHistory = [], fast = false) {
   }
 }
 
-async function callGemini(prompt, modelName = 'gemini-1.5-flash', fast = false) {
+async function callGemini(prompt, modelName = 'models/gemini-2.5-flash', fast = false) {
   if (process.env.MOCK_AI === 'true') {
     return `Mock (Gemini) response: ${prompt.slice(0, 60)}...`;
   }
@@ -112,54 +112,57 @@ async function callGemini(prompt, modelName = 'gemini-1.5-flash', fast = false) 
     return '';
   }
   try {
-    // ✅ PROVEN STABLE: gemini-1.5-flash (VERIFIED WORKING)
-    console.log(`[Gemini] 🚀 Starting with model: ${modelName}, fast: ${fast}`);
+    // ⚡ ULTRA-FAST: models/gemini-2.5-flash (NEWEST, requires "models/" prefix)
+    console.log(`[Gemini] 🚀 Using: ${modelName}, fast: ${fast}`);
     
     const model = genAI.getGenerativeModel({ 
       model: modelName,
       generationConfig: {
-        temperature: 0.6,  // Balanced
-        maxOutputTokens: fast ? 200 : 400,  // Reasonable limits
-        topP: 0.9,
+        temperature: 0.5,
+        maxOutputTokens: fast ? 150 : 300,
+        topP: 0.85,
         topK: 40,
       },
     });
     
-    console.log(`[Gemini] 📤 Sending request with ${prompt.length} chars...`);
+    console.log(`[Gemini] 📤 Sending ${prompt.length} chars...`);
     
     const result = await model.generateContent(prompt);
     const text = result.response.text();
     
-    console.log(`✅ [Gemini 1.5 Flash] SUCCESS! Response: ${text?.length || 0} chars`);
-    console.log(`[Gemini] First 100 chars: ${text?.substring(0, 100)}...`);
+    console.log(`✅ [Gemini 2.5 Flash] SUCCESS! ${text?.length || 0} chars`);
+    console.log(`[Gemini] Preview: ${text?.substring(0, 80)}...`);
     
     return text || '';
   } catch (e) {
-    console.error(`❌ [Gemini ${modelName}] FAILED with error:`, e.message);
-    console.error('[Gemini] Error details:', JSON.stringify(e, null, 2));
+    console.error(`❌ [${modelName}] Error:`, e.message);
     
-    // Try gemini-pro as fallback
-    if (modelName !== 'gemini-pro') {
+    // Smart fallback chain: 2.5 > 2.0 > flash-latest
+    const fallbackModels = ['models/gemini-2.0-flash', 'models/gemini-flash-latest'];
+    
+    for (const fallbackModel of fallbackModels) {
+      if (modelName === fallbackModel) continue;
+      
       try {
-        console.log('[Gemini] 🔄 Trying fallback to gemini-pro...');
+        console.log(`[Gemini] 🔄 Trying ${fallbackModel}...`);
         const model = genAI.getGenerativeModel({ 
-          model: 'gemini-pro',
+          model: fallbackModel,
           generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: fast ? 200 : 400,
+            temperature: 0.6,
+            maxOutputTokens: fast ? 150 : 300,
           },
         });
         const result = await model.generateContent(prompt);
         const text = result.response.text();
-        console.log(`✅ [Gemini Pro] Fallback SUCCESS! Response: ${text?.length || 0} chars`);
+        console.log(`✅ [${fallbackModel}] SUCCESS! ${text?.length || 0} chars`);
         return text || '';
       } catch (fallbackError) {
-        console.error('❌ [Gemini Pro] Fallback FAILED:', fallbackError.message);
-        return '';
+        console.error(`❌ [${fallbackModel}] Failed:`, fallbackError.message);
+        continue;
       }
     }
     
-    return '';
+    return ''; // All fallbacks failed
   }
 }
 
@@ -640,12 +643,12 @@ async function processMessage(req, res) {
       // Gemini 1.5 Flash (STABLE) > OpenAI > Grok (in order of speed)
       
       if (fast || !hasGrokKey) {
-        // Fast mode: Use Gemini 1.5 Flash (PROVEN STABLE) or OpenAI
+        // Fast mode: Use Gemini 2.5 Flash (NEWEST, FASTEST) or OpenAI
         if (GOOGLE_AI_API_KEY) {
-          console.log('[processMessage] ✅ STABLE: Using Gemini 1.5 Flash');
+          console.log('[processMessage] ⚡ NEWEST: Using Gemini 2.5 Flash');
           // Simple prompt for speed
           const simplePrompt = `${systemPrompt}\nRecent: ${history.slice(-2).map(h => `${h.role}: ${h.content}`).join('\n')}\nUser: ${message}\nAssistant:`;
-          result = await callGemini(simplePrompt, 'gemini-1.5-flash', true);
+          result = await callGemini(simplePrompt, 'models/gemini-2.5-flash', true);
         }
         
         // Fallback to OpenAI if Gemini fails
@@ -660,16 +663,16 @@ async function processMessage(req, res) {
           result = await callGrok(message, fullHistory, fast);
         }
         
-        // Fallback chain: OpenAI -> Gemini 1.5 Flash
+        // Fallback chain: OpenAI -> Gemini 2.5 Flash
         if (!result && hasOpenAIKey) {
           console.log('[processMessage] Using OpenAI');
           result = await callOpenAI(message, fullHistory, fast);
         }
         
         if (!result && GOOGLE_AI_API_KEY) {
-          console.log('[processMessage] Using Gemini 1.5 Flash (STABLE)');
+          console.log('[processMessage] Using Gemini 2.5 Flash');
           const simplePrompt = `${systemPrompt}\nRecent: ${history.slice(-2).map(h => `${h.role}: ${h.content}`).join('\n')}\nUser: ${message}`;
-          result = await callGemini(simplePrompt, 'gemini-1.5-flash', fast);
+          result = await callGemini(simplePrompt, 'models/gemini-2.5-flash', fast);
         }
       }
     }
