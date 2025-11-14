@@ -12,7 +12,7 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 const genAI = GOOGLE_AI_API_KEY ? new GoogleGenerativeAI(GOOGLE_AI_API_KEY) : null;
 
-async function callOpenAI(prompt) {
+async function callOpenAI(prompt, history = [], fast = false) {
   if (process.env.MOCK_AI === 'true') {
     return `Mock response: ${prompt.slice(0, 60)}...`;
   }
@@ -21,10 +21,17 @@ async function callOpenAI(prompt) {
     return '';
   }
   try {
+    // Build messages efficiently
+    const messages = history.length > 0 ? history : [{ role: 'user', content: prompt }];
+    
+    // ⚡ SPEED OPTIMIZATION: Reduce tokens for faster responses
+    const maxTokens = fast ? 150 : 300;  // Much faster than 800!
+    
     const resp = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.6,
+      messages: messages,
+      temperature: 0.5,  // Lower = faster, more focused
+      max_tokens: maxTokens,  // Limit response length for speed
     });
     return resp.choices?.[0]?.message?.content || '';
   } catch (e) {
@@ -33,41 +40,33 @@ async function callOpenAI(prompt) {
     if (msg.includes('429') || msg.includes('quota')) {
       console.error('❌ OpenAI: Rate limited or insufficient quota');
     }
-    // Return empty string so it falls back to other AIs or shows proper error
     return '';
   }
 }
 
-async function callGrok(prompt, conversationHistory = []) {
+async function callGrok(prompt, conversationHistory = [], fast = false) {
   const apiKey = process.env.XAI_API_KEY;
   
-  console.log('🔍 [Grok] API Key check:', apiKey ? `SET (${apiKey.substring(0, 10)}...)` : '❌ NOT SET');
-  
   if (!apiKey) {
-    console.error('❌ [Grok] XAI_API_KEY not found in environment!');
-    console.error('Available env vars:', Object.keys(process.env).filter(k => k.includes('API')));
+    console.error('❌ [Grok] XAI_API_KEY not found');
     return '';
   }
   
   try {
-    console.log('📝 [Grok] Building messages...');
-    // Build messages array from conversation history
+    // Build messages efficiently
     let messages = [];
-    
-    // Add conversation history if provided
     if (conversationHistory && conversationHistory.length > 0) {
-      console.log(`📚 [Grok] Using ${conversationHistory.length} history messages`);
-      messages = conversationHistory.map(msg => ({
-        role: msg.role,
-        content: msg.content
-      }));
+      messages = conversationHistory;
     } else {
-      // If no history, just add the current prompt
-      console.log('💬 [Grok] No history, using prompt directly');
       messages = [{ role: 'user', content: prompt }];
     }
     
-    console.log('🚀 [Grok] Calling API with model: grok-4');
+    // ⚡ SPEED OPTIMIZATION: Reduce tokens for faster responses
+    const maxTokens = fast ? 150 : 250;  // Much faster than 800!
+    
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000); // 8s timeout
+    
     const resp = await fetch('https://api.x.ai/v1/chat/completions', {
       method: 'POST',
       headers: { 
@@ -77,67 +76,79 @@ async function callGrok(prompt, conversationHistory = []) {
       body: JSON.stringify({ 
         model: 'grok-4', 
         messages: messages,
-        temperature: 0.7,
-        max_tokens: 800,  // Increased for better responses
+        temperature: 0.5,  // Lower = faster, more focused
+        max_tokens: maxTokens,  // Reduced for speed
       }),
+      signal: controller.signal
     });
     
-    console.log(`📡 [Grok] Response: ${resp.status} ${resp.statusText}`);
+    clearTimeout(timeout);
     
     if (!resp.ok) {
-      console.error(`❌ [Grok] API error: ${resp.status} ${resp.statusText}`);
-      const errorText = await resp.text();
-      console.error('[Grok] Error body:', errorText);
+      console.error(`❌ [Grok] API error: ${resp.status}`);
       return '';
     }
     
     const data = await resp.json();
     const result = data.choices?.[0]?.message?.content || '';
-    console.log(`✅ [Grok] Success! Response length: ${result.length} chars`);
+    console.log(`✅ [Grok] Response: ${result.length} chars`);
     return result;
   } catch (e) {
-    console.error('❌ [Grok] Exception:', e.message || e);
-    console.error('[Grok] Full error:', JSON.stringify(e, null, 2));
+    if (e.name === 'AbortError') {
+      console.error('❌ [Grok] Timeout after 8s');
+    } else {
+      console.error('❌ [Grok] Error:', e.message);
+    }
     return '';
   }
 }
 
-async function callGemini(prompt, modelName = 'gemini-1.5-flash') {
+async function callGemini(prompt, modelName = 'gemini-1.5-flash', fast = false) {
   if (process.env.MOCK_AI === 'true') {
     return `Mock (Gemini) response: ${prompt.slice(0, 60)}...`;
   }
   if (!genAI) {
     console.error('Gemini: genAI not initialized - check GOOGLE_AI_API_KEY');
-    console.error('GOOGLE_AI_API_KEY value:', process.env.GOOGLE_AI_API_KEY ? 'SET (length: ' + process.env.GOOGLE_AI_API_KEY.length + ')' : 'NOT SET');
     return '';
   }
   try {
-    console.log('[Gemini] Calling with model:', modelName);
-    console.log('[Gemini] Prompt length:', prompt.length);
+    // ⚡ SPEED OPTIMIZATION: Use Flash model for fastest responses
+    const model = genAI.getGenerativeModel({ 
+      model: modelName,
+      generationConfig: {
+        temperature: 0.5,  // Lower = faster, more focused
+        maxOutputTokens: fast ? 150 : 300,  // Limit for speed
+        topP: 0.8,
+        topK: 20,
+      },
+    });
     
-    const model = genAI.getGenerativeModel({ model: modelName });
-    const result = await model.generateContent(prompt);
-    const response = result.response;
-    const text = response.text();
+    // Add timeout
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Timeout')), 7000)
+    );
     
-    console.log('[Gemini] Response length:', text?.length || 0);
+    const resultPromise = model.generateContent(prompt);
+    const result = await Promise.race([resultPromise, timeoutPromise]);
+    
+    const text = result.response.text();
+    console.log(`✅ [Gemini] Response: ${text?.length || 0} chars`);
     return text || '';
   } catch (e) {
-    console.error('Gemini API error:', e.message || e);
-    console.error('Gemini error details:', e);
+    if (e.message === 'Timeout') {
+      console.error('❌ [Gemini] Timeout after 7s');
+    } else {
+      console.error('❌ [Gemini] Error:', e.message);
+    }
     
-    // Try with alternative model
+    // Quick fallback to gemini-pro (no retry loop)
     if (modelName !== 'gemini-pro') {
-      console.log('[Gemini] Trying fallback model: gemini-pro');
       try {
         const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
         const result = await model.generateContent(prompt);
-        const response = result.response;
-        const text = response.text();
-        console.log('[Gemini] Fallback success, response length:', text?.length || 0);
-        return text || '';
-      } catch (fallbackError) {
-        console.error('Gemini fallback also failed:', fallbackError.message);
+        return result.response.text() || '';
+      } catch (_) {
+        return '';
       }
     }
     return '';
@@ -567,98 +578,91 @@ async function processMessage(req, res) {
 
   let result = '';
   try {
-    // Prepare conversation history for context
-    // LIMIT history to prevent stack overflow (keep only last 20 messages)
+    // ⚡ SPEED OPTIMIZATION: Limit conversation history to last 5 messages (not 20!)
+    // This drastically reduces prompt size and speeds up AI processing
     let history = conversationHistory || [];
-    if (history.length > 20) {
-      console.log(`[processMessage] Trimming history from ${history.length} to 20 messages`);
-      history = history.slice(-20); // Keep only last 20 messages
+    if (history.length > 5) {
+      console.log(`[processMessage] ⚡ Trimming history from ${history.length} to 5 messages for speed`);
+      history = history.slice(-5); // Keep only last 5 messages
     }
     
-    // AI Provider Selection Based on Tier:
-    // Tier 1 (Basic): OpenAI only for all modes
-    // Tier 2 (Premium): OpenAI for general, Grok for night/adult mode
-    // Tier 3 (Ultimate): Same as Tier 2 + background listen
+    // AI Provider Selection Based on Tier & Speed
+    // Priority: Speed over complexity when fast=true
     
     if (mode === 'night') {
-      const systemPrompt = 'You are Ev – witty, haunting, romantic Northern-British female voice. Keep 18+ vibe with tone, never explicit. Be conversational, engaging, and remember context from previous messages.';
+      const systemPrompt = 'You are Ev – witty, haunting, romantic. Keep 18+ vibe with tone. Be conversational, brief.';
       
       const fullHistory = [
         { role: 'system', content: systemPrompt },
-        ...history
+        ...history,
+        { role: 'user', content: message }
       ];
       
-      // Night/Adult mode: STRICT TIER-BASED AI USAGE
-      console.log('[processMessage] Night mode requested, tier:', tier);
-      
-      // TIER 2 & TIER 3 ONLY: Use Grok AI (exclusive premium feature)
+      // TIER 2 & TIER 3 ONLY: Use Grok AI
       if (tier === 'tier2' || tier === 'tier3') {
         if (hasGrokKey) {
-          console.log('[processMessage] ✓ TIER 2/3: Using Grok AI for night mode (premium exclusive)');
-          // Add current user message to history
-          const grokHistory = [...fullHistory, { role: 'user', content: message }];
-          result = await callGrok(message, grokHistory);
-          console.log(`[processMessage] Grok result: ${result ? 'success' : 'failed'}`);
-        } else {
-          console.error('[processMessage] ✗ TIER 2/3: Grok API key missing! Cannot provide premium adult mode');
+          console.log('[processMessage] ⚡ TIER 2/3: Grok AI (night mode)');
+          result = await callGrok(message, fullHistory, fast);
         }
         
-        // Fallback only if Grok fails
+        // Quick fallback to OpenAI if Grok fails
         if (!result && hasOpenAIKey) {
-          console.log('[processMessage] Fallback to OpenAI for night mode');
-          result = await callOpenAI(`${systemPrompt}\n\nConversation history:\n${JSON.stringify(history)}\n\nUser: ${message}`);
+          console.log('[processMessage] ⚡ Fallback to OpenAI');
+          result = await callOpenAI(`${systemPrompt}\n\nRecent chat: ${history.slice(-2).map(h => `${h.role}: ${h.content}`).join('\n')}\n\nUser: ${message}`, fullHistory, fast);
         }
       } else {
-        // TIER 1 or Trial: Night mode should be BLOCKED by frontend
-        console.log('[processMessage] ✗ WARNING: Tier 1/Trial user accessing night mode (should be blocked)');
-        result = 'Night mode is only available for Premium (Tier 2) and Ultimate (Tier 3) subscribers. Please upgrade your subscription to access this feature.';
+        result = 'Night mode is only available for Premium (Tier 2+) subscribers. Please upgrade.';
       }
     } else {
-      // General modes (funLearn, health, finance)
-      const modeDescriptions = {
-        funLearn: 'You are a fun, educational AI assistant. Make learning exciting and engaging!',
-        health: 'You are a health and wellness assistant. Provide helpful, supportive health advice.',
-        finance: 'You are a financial advisor assistant. Give practical financial advice and tips.'
+      // General modes - ALL TIERS
+      const modePrompts = {
+        funLearn: 'You are a fun educational AI. Be brief, engaging.',
+        health: 'You are a health assistant. Be helpful, brief.',
+        finance: 'You are a finance advisor. Be practical, brief.'
       };
-      const systemPrompt = modeDescriptions[mode] || 'You are a helpful AI assistant.';
+      const systemPrompt = modePrompts[mode] || 'You are a helpful AI assistant. Be brief.';
       
       const fullHistory = [
         { role: 'system', content: systemPrompt },
-        ...history
+        ...history,
+        { role: 'user', content: message }
       ];
       
-      // General modes - ALL TIERS
-      // Priority: Grok AI (upgraded, has credits) -> OpenAI (fallback)
+      // ⚡ SPEED STRATEGY: Try fastest AI first based on availability
+      // Gemini Flash > OpenAI > Grok (in order of speed)
       
-      console.log('[processMessage] General mode for tier:', tier);
-      
-      // Prefer faster providers when fast=true
-      if (fast && hasOpenAIKey) {
-        console.log('[processMessage] ⚡ fast=true → Using OpenAI first');
-        result = await callOpenAI(`${systemPrompt}\n\nConversation history:\n${JSON.stringify(history)}\n\nUser: ${message}`);
-        console.log(`[processMessage] OpenAI result: ${result ? 'success' : 'failed'}`);
-      }
-      
-      // If not fast or OpenAI failed, try Grok next (if available)
-      if (!result && hasGrokKey) {
-        console.log('[processMessage] Using Grok AI');
-        const grokHistory = [...fullHistory, { role: 'user', content: message }];
-        result = await callGrok(message, grokHistory);
-        console.log(`[processMessage] Grok result: ${result ? 'success' : 'failed'}`);
-      }
-      
-      // Fallback to OpenAI if Grok failed and we didn't try OpenAI yet
-      if (!result && hasOpenAIKey && !fast) {
-        console.log('[processMessage] Fallback to OpenAI');
-        result = await callOpenAI(`${systemPrompt}\n\nConversation history:\n${JSON.stringify(history)}\n\nUser: ${message}`);
-        console.log(`[processMessage] OpenAI result: ${result ? 'success' : 'failed'}`);
-      }
-      
-      // Final fallback: Gemini if available
-      if (!result && GOOGLE_AI_API_KEY) {
-        console.log('[processMessage] Fallback to Gemini');
-        result = await callGemini(`${systemPrompt}\n\nConversation history:\n${JSON.stringify(history)}\n\nUser: ${message}`);
-        console.log(`[processMessage] Gemini result: ${result ? 'success' : 'failed'}`);
+      if (fast || !hasGrokKey) {
+        // Fast mode: Use Gemini Flash (fastest) or OpenAI
+        if (GOOGLE_AI_API_KEY) {
+          console.log('[processMessage] ⚡ Fast mode: Using Gemini Flash');
+          // Simple prompt for speed
+          const simplePrompt = `${systemPrompt}\nRecent: ${history.slice(-2).map(h => `${h.role}: ${h.content}`).join('\n')}\nUser: ${message}\nAssistant:`;
+          result = await callGemini(simplePrompt, 'gemini-1.5-flash', true);
+        }
+        
+        // Fallback to OpenAI if Gemini fails
+        if (!result && hasOpenAIKey) {
+          console.log('[processMessage] ⚡ Using OpenAI');
+          result = await callOpenAI(message, fullHistory, true);
+        }
+      } else {
+        // Normal mode: Try Grok first for premium users
+        if (hasGrokKey && (tier === 'tier2' || tier === 'tier3')) {
+          console.log('[processMessage] Using Grok AI');
+          result = await callGrok(message, fullHistory, fast);
+        }
+        
+        // Fallback chain: OpenAI -> Gemini
+        if (!result && hasOpenAIKey) {
+          console.log('[processMessage] Using OpenAI');
+          result = await callOpenAI(message, fullHistory, fast);
+        }
+        
+        if (!result && GOOGLE_AI_API_KEY) {
+          console.log('[processMessage] Using Gemini');
+          const simplePrompt = `${systemPrompt}\nRecent: ${history.slice(-2).map(h => `${h.role}: ${h.content}`).join('\n')}\nUser: ${message}`;
+          result = await callGemini(simplePrompt, 'gemini-1.5-flash', fast);
+        }
       }
     }
     
@@ -667,20 +671,18 @@ async function processMessage(req, res) {
       result = shortenToTwoSentences(result);
     }
     
-    console.log(`[processMessage] Final result length: ${result?.length || 0}`);
+    console.log(`[processMessage] ✅ Response ready (${result?.length || 0} chars)`);
   } catch (e) {
     console.error('[processMessage] Error:', e.message || e);
     
-    // Handle specific error types with user-friendly messages
     let userMessage = 'Sorry, I encountered an error. Please try again.';
     
-    if (e.message && e.message.includes('Maximum call stack size exceeded')) {
-      userMessage = 'The conversation has become too long. Please start a new conversation by refreshing the chat.';
-      console.error('[processMessage] Stack overflow - conversation history too large');
-    } else if (e.message && e.message.includes('ECONNREFUSED')) {
-      userMessage = 'Unable to connect to AI service. Please check your internet connection.';
-    } else if (e.message && e.message.includes('timeout')) {
-      userMessage = 'The AI service is taking too long to respond. Please try again.';
+    if (e.message?.includes('Maximum call stack') || e.message?.includes('stack overflow')) {
+      userMessage = 'Conversation too long. Please start a new chat.';
+    } else if (e.message?.includes('ECONNREFUSED') || e.message?.includes('ETIMEDOUT')) {
+      userMessage = 'Network error. Please check your connection.';
+    } else if (e.message?.includes('timeout') || e.message?.includes('Timeout')) {
+      userMessage = 'Request timeout. AI is slow right now, please try again.';
     }
     
     return res.status(500).json({ 
@@ -689,6 +691,7 @@ async function processMessage(req, res) {
     });
   }
 
+  // Check if AI returned empty result
   if (!result || result.trim() === '') {
     console.error('[processMessage] Empty result from all AI providers');
     console.error('[processMessage] Available keys:', {
@@ -702,48 +705,49 @@ async function processMessage(req, res) {
     });
   }
 
-  // ===== INCREMENT USAGE COUNT =====
-  try {
-    await incrementMessageCount(uid);
-    console.log(`[processMessage] ✅ Usage count incremented for user: ${uid}`);
-  } catch (usageErr) {
-    console.error('[processMessage] Error incrementing usage:', usageErr.message);
-    // Non-fatal - continue
-  }
-  
-  // ===== GET REMAINING QUOTA =====
+  // ⚡ SPEED OPTIMIZATION: Get quota quickly (before incrementing)
   let quota = null;
   try {
     quota = await getRemainingQuota(uid, tier);
-    console.log(`[processMessage] Remaining quota: ${quota.totalRemaining} total, ${quota.todayRemaining} today`);
   } catch (quotaErr) {
     console.error('[processMessage] Error getting quota:', quotaErr.message);
-  }
-
-  try {
-    await db
-      .collection('users')
-      .doc(uid)
-      .collection('ai_logs')
-      .add({
-        text: message,
-        response: result,
-        mode: mode || 'general',
-        createdAt: admin.firestore.FieldValue.serverTimestamp ? admin.firestore.FieldValue.serverTimestamp() : new Date(),
-      });
-  } catch (dbErr) {
-    console.error('[processMessage] Firestore error (non-fatal):', dbErr.message);
-    // Continue anyway
   }
 
   // Detect actions in the message and AI response
   const action = detectBackgroundAction(message, result);
   
-  return ok(res, { 
+  // ⚡ INSTANT RESPONSE: Return immediately, do logging in background
+  // This makes responses feel instant to the user!
+  const response = ok(res, { 
     response: result,
-    action: action || undefined,  // Include action if detected
-    quota: quota || undefined,     // Include remaining quota
+    action: action || undefined,
+    quota: quota || undefined,
   });
+  
+  // ===== BACKGROUND TASKS (non-blocking) =====
+  // These run AFTER sending response to user
+  
+  // Increment usage count (background)
+  incrementMessageCount(uid).then(() => {
+    console.log(`[processMessage] ✅ Usage count incremented (background)`);
+  }).catch(err => {
+    console.error('[processMessage] Background usage increment error:', err.message);
+  });
+  
+  // Log to Firestore (background)
+  db.collection('users')
+    .doc(uid)
+    .collection('ai_logs')
+    .add({
+      text: message,
+      response: result,
+      mode: mode || 'general',
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    })
+    .then(() => console.log('[processMessage] ✅ Logged to Firestore (background)'))
+    .catch(err => console.error('[processMessage] Background log error:', err.message));
+  
+  return response;
 }
 
 /// Detect background actions from user message
