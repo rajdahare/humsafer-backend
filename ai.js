@@ -103,7 +103,7 @@ async function callGrok(prompt, conversationHistory = [], fast = false) {
   }
 }
 
-async function callGemini(prompt, modelName = 'gemini-2.5-flash', fast = false) {
+async function callGemini(prompt, modelName = 'gemini-2.0-flash-exp', fast = false) {
   if (process.env.MOCK_AI === 'true') {
     return `Mock (Gemini) response: ${prompt.slice(0, 60)}...`;
   }
@@ -112,49 +112,59 @@ async function callGemini(prompt, modelName = 'gemini-2.5-flash', fast = false) 
     return '';
   }
   try {
-    // ⚡ ULTRA-FAST: gemini-2.0-flash-exp (newest, fastest Gemini model)
+    // ⚡ NEWEST: gemini-2.0-flash-exp (December 2024 - FASTEST Gemini)
     const model = genAI.getGenerativeModel({ 
       model: modelName,
       generationConfig: {
-        temperature: 0.4,  // Balanced for speed & quality
-        maxOutputTokens: fast ? 100 : 200,  // Optimized for speed
-        topP: 0.7,
-        topK: 20,
+        temperature: 0.5,  // Balanced for speed & quality
+        maxOutputTokens: fast ? 150 : 300,  // Optimized tokens
+        topP: 0.8,
+        topK: 40,
       },
     });
     
+    console.log(`[Gemini] Using model: ${modelName}, fast: ${fast}, maxTokens: ${fast ? 150 : 300}`);
+    
     // Timeout with better error handling
     const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Timeout')), 8000)  // 8s timeout
+      setTimeout(() => reject(new Error('Timeout')), 12000)  // 12s timeout for new model
     );
     
     const resultPromise = model.generateContent(prompt);
     const result = await Promise.race([resultPromise, timeoutPromise]);
     
     const text = result.response.text();
-    console.log(`✅ [Gemini 2.0 Flash] Response: ${text?.length || 0} chars`);
+    console.log(`✅ [Gemini 2.0] Response: ${text?.length || 0} chars`);
     return text || '';
   } catch (e) {
-    console.error('❌ [Gemini 2.0] Error:', e.message);
+    console.error(`❌ [Gemini ${modelName}] Error:`, e.message);
     
-    // Fallback to stable 1.5 flash model
-    try {
-      console.log('[Gemini] Trying fallback to 1.5-flash...');
-      const model = genAI.getGenerativeModel({ 
-        model: 'gemini-1.5-flash',
-        generationConfig: {
-          temperature: 0.5,
-          maxOutputTokens: fast ? 100 : 200,
-        },
-      });
-      const result = await model.generateContent(prompt);
-      const text = result.response.text();
-      console.log(`✅ [Gemini 1.5 Flash] Fallback success: ${text?.length || 0} chars`);
-      return text || '';
-    } catch (fallbackError) {
-      console.error('❌ [Gemini] Fallback also failed:', fallbackError.message);
-      return '';
+    // Smart fallback chain: 2.0 -> 1.5-flash -> gemini-pro
+    const fallbackModels = ['gemini-1.5-flash', 'gemini-pro'];
+    
+    for (const fallbackModel of fallbackModels) {
+      if (modelName === fallbackModel) continue;
+      
+      try {
+        console.log(`[Gemini] Trying fallback to ${fallbackModel}...`);
+        const model = genAI.getGenerativeModel({ 
+          model: fallbackModel,
+          generationConfig: {
+            temperature: 0.6,
+            maxOutputTokens: fast ? 150 : 300,
+          },
+        });
+        const result = await model.generateContent(prompt);
+        const text = result.response.text();
+        console.log(`✅ [${fallbackModel}] Fallback success: ${text?.length || 0} chars`);
+        return text || '';
+      } catch (fallbackError) {
+        console.error(`❌ [${fallbackModel}] Fallback failed:`, fallbackError.message);
+        continue; // Try next fallback
+      }
     }
+    
+    return ''; // All fallbacks failed
   }
 }
 
@@ -635,9 +645,9 @@ async function processMessage(req, res) {
       // Gemini 2.0 Flash > OpenAI > Grok (in order of speed)
       
       if (fast || !hasGrokKey) {
-        // Fast mode: Use Gemini 2.0 Flash (newest, fastest) or OpenAI
+        // Fast mode: Use Gemini 2.0 Flash (NEWEST, FASTEST) or OpenAI
         if (GOOGLE_AI_API_KEY) {
-          console.log('[processMessage] ⚡ ULTRA-FAST: Using Gemini 2.0 Flash');
+          console.log('[processMessage] ⚡ NEWEST: Using Gemini 2.0 Flash');
           // Simple prompt for speed
           const simplePrompt = `${systemPrompt}\nRecent: ${history.slice(-2).map(h => `${h.role}: ${h.content}`).join('\n')}\nUser: ${message}\nAssistant:`;
           result = await callGemini(simplePrompt, 'gemini-2.0-flash-exp', true);
