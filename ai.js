@@ -116,6 +116,111 @@ async function callGrok(prompt, conversationHistory = [], fast = false) {
   }
 }
 
+/// Call Gemini with image/file attachments (Vision API)
+async function callGeminiWithAttachments(prompt, attachments, history, systemPrompt, fast = false) {
+  if (process.env.MOCK_AI === 'true') {
+    return `Mock (Gemini Vision) response: ${prompt.slice(0, 60)}...`;
+  }
+  if (!genAI) {
+    console.error('❌ Gemini: genAI not initialized - check GOOGLE_AI_API_KEY');
+    return '';
+  }
+  
+  try {
+    // Use Gemini 1.5 Flash or Pro for vision (2.5 Flash may not support vision yet)
+    const modelName = 'models/gemini-1.5-flash';
+    console.log(`[Gemini Vision] 🖼️ Using ${modelName} for image analysis`);
+    
+    const model = genAI.getGenerativeModel({ 
+      model: modelName,
+      generationConfig: {
+        temperature: 0.3,
+        maxOutputTokens: fast ? 200 : 400,  // More tokens for image analysis
+        topP: 0.8,
+        topK: 20,
+      },
+    });
+    
+    // Build content array with text and images
+    const parts = [];
+    
+    // Add system prompt and conversation context
+    const contextPrompt = systemPrompt 
+      ? `${systemPrompt}\n\nRecent conversation:\n${history.slice(-2).map(h => `${h.role}: ${h.content}`).join('\n')}\n\nUser prompt: ${prompt}`
+      : `Recent conversation:\n${history.slice(-2).map(h => `${h.role}: ${h.content}`).join('\n')}\n\nUser prompt: ${prompt}`;
+    
+    parts.push({ text: contextPrompt });
+    
+    // Add images from attachments
+    for (const attachment of attachments) {
+      if (attachment.fileType === 'image' && attachment.url) {
+        console.log(`[Gemini Vision] 📷 Adding image: ${attachment.fileName}`);
+        
+        try {
+          // Fetch image from URL
+          const imageResponse = await fetch(attachment.url);
+          if (!imageResponse.ok) {
+            console.error(`❌ [Gemini Vision] Failed to fetch image: ${attachment.url}`);
+            continue;
+          }
+          
+          // Convert to base64
+          const imageBuffer = await imageResponse.arrayBuffer();
+          const imageBase64 = Buffer.from(imageBuffer).toString('base64');
+          const mimeType = imageResponse.headers.get('content-type') || 'image/jpeg';
+          
+          // Add image to parts
+          parts.push({
+            inlineData: {
+              data: imageBase64,
+              mimeType: mimeType,
+            }
+          });
+          
+          console.log(`✅ [Gemini Vision] Image added: ${attachment.fileName} (${mimeType})`);
+        } catch (imgErr) {
+          console.error(`❌ [Gemini Vision] Error processing image ${attachment.fileName}:`, imgErr.message);
+          // Continue with other images
+        }
+      } else if (attachment.fileType === 'document' && attachment.url) {
+        // For documents, add description to prompt
+        console.log(`[Gemini Vision] 📄 Document detected: ${attachment.fileName}`);
+        parts.push({ 
+          text: `\n\n[Document attached: ${attachment.fileName} - URL: ${attachment.url}. Please analyze this document based on the user's prompt.]` 
+        });
+      }
+    }
+    
+    if (parts.length === 1) {
+      // No images were added, fall back to text-only
+      console.log('[Gemini Vision] ⚠️ No images processed, using text-only mode');
+      return await callGemini(prompt, modelName, fast);
+    }
+    
+    console.log(`[Gemini Vision] 📤 Sending ${parts.length - 1} image(s) with prompt...`);
+    
+    // Generate content with images - Gemini API accepts parts directly
+    const result = await model.generateContent(parts);
+    const text = result.response?.text();
+    
+    if (!text || text.trim() === '') {
+      console.error(`❌ [Gemini Vision] Empty response from API`);
+      console.error(`[Gemini Vision] Full result:`, JSON.stringify(result, null, 2));
+      return '';
+    }
+    
+    console.log(`✅ [Gemini Vision] SUCCESS! ${text.length} chars`);
+    return text;
+  } catch (e) {
+    console.error(`❌ [Gemini Vision] Error:`, e.message);
+    console.error(`[Gemini Vision] Error details:`, e.stack);
+    
+    // Fallback to text-only mode
+    console.log(`[Gemini Vision] 🔄 Fallback to text-only mode`);
+    return await callGemini(prompt, 'models/gemini-1.5-flash', fast);
+  }
+}
+
 async function callGemini(prompt, modelName = 'models/gemini-2.5-flash', fast = false) {
   if (process.env.MOCK_AI === 'true') {
     return `Mock (Gemini) response: ${prompt.slice(0, 60)}...`;
@@ -563,30 +668,43 @@ Today is ${new Date().toISOString()}.`;
 
 async function processMessage(req, res) {
   const uid = req.userId;
-  const { message, mode, conversationHistory, tierLevel, fast, replyStyle } = req.body || {};
+  const { message, mode, conversationHistory, tierLevel, fast, replyStyle, voiceChat, attachments } = req.body || {};
   if (!message) return res.status(400).json({ error: 'message required' });
 
   const tier = tierLevel || 'free';  // Default to free tier if not specified
   const hasGrokKey = !!process.env.XAI_API_KEY;
   const hasOpenAIKey = !!OPENAI_API_KEY;
+  const isVoiceChat = voiceChat === true;  // Voice chat session flag
+  const hasAttachments = attachments && Array.isArray(attachments) && attachments.length > 0;
   
-  console.log(`[processMessage] tier: ${tier}, mode: ${mode}, fast: ${!!fast}, replyStyle: ${replyStyle || 'default'}, hasGrokKey: ${hasGrokKey}, hasOpenAIKey: ${hasOpenAIKey}`);
+  console.log(`[processMessage] tier: ${tier}, mode: ${mode}, fast: ${!!fast}, replyStyle: ${replyStyle || 'default'}, voiceChat: ${isVoiceChat}, attachments: ${hasAttachments ? attachments.length : 0}, hasGrokKey: ${hasGrokKey}, hasOpenAIKey: ${hasOpenAIKey}`);
   
   // ===== USAGE LIMITS CHECK (prevent abuse and control costs) =====
-  const limitCheck = await checkMessageLimit(uid, tier);
-  
-  if (!limitCheck.allowed) {
-    console.log(`[processMessage] ⛔ Message blocked: ${limitCheck.reason}`);
-    return res.status(429).json({
-      error: 'limit_exceeded',
-      message: limitCheck.reason,
-      remainingTotal: limitCheck.remainingTotal,
-      remainingToday: limitCheck.remainingToday,
-      usage: limitCheck.usage,
-    });
+  // ⚡ VOICE CHAT: Allow unlimited messages within a voice session
+  // Skip quota check for voice chat sessions, but still track usage for analytics
+  let limitCheck;
+  if (isVoiceChat) {
+    console.log(`[processMessage] 🎤 Voice chat session - skipping quota check, allowing unlimited messages`);
+    // Still check quota for info, but don't block
+    limitCheck = await checkMessageLimit(uid, tier);
+    console.log(`[processMessage] ℹ️ Voice chat quota info: ${limitCheck.remainingTotal} total, ${limitCheck.remainingToday} today (not blocking)`);
+  } else {
+    // Regular chat - enforce quota limits
+    limitCheck = await checkMessageLimit(uid, tier);
+    
+    if (!limitCheck.allowed) {
+      console.log(`[processMessage] ⛔ Message blocked: ${limitCheck.reason}`);
+      return res.status(429).json({
+        error: 'limit_exceeded',
+        message: limitCheck.reason,
+        remainingTotal: limitCheck.remainingTotal,
+        remainingToday: limitCheck.remainingToday,
+        usage: limitCheck.usage,
+      });
+    }
+    
+    console.log(`[processMessage] ✅ Usage check passed. Remaining: ${limitCheck.remainingTotal} total, ${limitCheck.remainingToday} today`);
   }
-  
-  console.log(`[processMessage] ✅ Usage check passed. Remaining: ${limitCheck.remainingTotal} total, ${limitCheck.remainingToday} today`);
 
   // Check for scheduling intent (supports English + Hindi/Hinglish)
   const lowerMessage = message.toLowerCase();
@@ -680,20 +798,36 @@ async function processMessage(req, res) {
       // Priority: Gemini 2.5 Flash (FASTEST) > OpenAI (FAST) > Grok (SLOW - only for night mode)
       
       // ALWAYS try Gemini first (FASTEST) - for ALL users, ALL modes
+      // If attachments exist, use Gemini Vision API
       if (GOOGLE_AI_API_KEY) {
-        console.log('[processMessage] ⚡ INSTANT: Using Gemini 2.5 Flash (FASTEST)');
-        try {
-          // Simple prompt for speed
-          const simplePrompt = `${systemPrompt}\nRecent: ${history.slice(-2).map(h => `${h.role}: ${h.content}`).join('\n')}\nUser: ${message}\nAssistant:`;
-          result = await callGemini(simplePrompt, 'models/gemini-2.5-flash', true);
-          if (result && result.trim()) {
-            console.log(`[processMessage] ✅ Gemini success: ${result.length} chars`);
-          } else {
-            console.error('[processMessage] ❌ Gemini returned empty result');
+        if (hasAttachments) {
+          console.log('[processMessage] 🖼️ Using Gemini Vision API for image/file analysis');
+          try {
+            result = await callGeminiWithAttachments(message, attachments, history, systemPrompt, true);
+            if (result && result.trim()) {
+              console.log(`[processMessage] ✅ Gemini Vision success: ${result.length} chars`);
+            } else {
+              console.error('[processMessage] ❌ Gemini Vision returned empty result');
+            }
+          } catch (visionErr) {
+            console.error('[processMessage] ❌ Gemini Vision error:', visionErr.message);
+            result = '';
           }
-        } catch (geminiErr) {
-          console.error('[processMessage] ❌ Gemini error:', geminiErr.message);
-          result = '';
+        } else {
+          console.log('[processMessage] ⚡ INSTANT: Using Gemini 2.5 Flash (FASTEST)');
+          try {
+            // Simple prompt for speed
+            const simplePrompt = `${systemPrompt}\nRecent: ${history.slice(-2).map(h => `${h.role}: ${h.content}`).join('\n')}\nUser: ${message}\nAssistant:`;
+            result = await callGemini(simplePrompt, 'models/gemini-2.5-flash', true);
+            if (result && result.trim()) {
+              console.log(`[processMessage] ✅ Gemini success: ${result.length} chars`);
+            } else {
+              console.error('[processMessage] ❌ Gemini returned empty result');
+            }
+          } catch (geminiErr) {
+            console.error('[processMessage] ❌ Gemini error:', geminiErr.message);
+            result = '';
+          }
         }
       }
       
