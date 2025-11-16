@@ -39,7 +39,7 @@ app.use(cors({
   origin: '*',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-demo', 'firebase-auth-token'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-demo', 'firebase-auth-token', 'x-stream', 'X-Stream', 'Accept'],
 }));
 
 app.use(express.json({ limit: '10mb' }));
