@@ -1114,7 +1114,96 @@ async function voiceIntent(req, res) {
   return ok(res, { response });
 }
 
-module.exports = { processMessage, voiceIntent };
+// Streamed response for voice chat: splits text into clauses and writes progressively.
+async function processMessageStream(req, res) {
+  const uid = req.userId;
+  const { message, mode, conversationHistory, tierLevel, replyStyle, attachments } = req.body || {};
+  if (!message) return res.status(400).json({ error: 'message required' });
+
+  const tier = tierLevel || 'free';
+  const hasGrokKey = !!process.env.XAI_API_KEY;
+  const hasOpenAIKey = !!OPENAI_API_KEY;
+  const hasGeminiKey = !!GOOGLE_AI_API_KEY;
+
+  // Prepare minimal history (last 2)
+  let history = Array.isArray(conversationHistory) ? conversationHistory.slice(-2) : [];
+
+  // Compose prompt
+  const modePrompts = {
+    funLearn: 'You are a fun educational AI. Be brief, engaging.',
+    health: 'You are a health assistant. Be helpful, brief.',
+    finance: 'You are a finance advisor. Be practical, brief.'
+  };
+  const systemPrompt = mode === 'night'
+    ? 'You are Ev – witty, haunting, romantic. Keep 18+ vibe with tone. Be conversational, brief.'
+    : (modePrompts[mode] || 'You are a helpful AI assistant. Be brief.');
+  const simplePrompt = `${systemPrompt}\nRecent: ${history.map(h => `${h.role}: ${h.content}`).join('\n')}\nUser: ${message}\nAssistant:`;
+
+  // Generate result quickly prioritizing Gemini
+  let result = '';
+  try {
+    if (hasGeminiKey) {
+      if (attachments && Array.isArray(attachments) && attachments.length > 0) {
+        result = await callGeminiWithAttachments(message, attachments, history, systemPrompt, true);
+      } else {
+        result = await callGemini(simplePrompt, 'models/gemini-2.5-flash', true);
+      }
+    }
+    if (!result && hasOpenAIKey) {
+      result = await callOpenAI(message, [{ role: 'system', content: systemPrompt }, ...history, { role: 'user', content: message }], true);
+    }
+    if (!result && hasGrokKey && mode === 'night') {
+      result = await callGrok(message, [{ role: 'system', content: systemPrompt }, ...history, { role: 'user', content: message }], true);
+    }
+  } catch (e) {
+    console.error('[processMessageStream] generation error:', e.message || e);
+    result = '';
+  }
+
+  if (replyStyle === 'short' && result) {
+    result = shortenToTwoSentences(result);
+  }
+
+  // Get quota (non-blocking semantics ok here)
+  let quota = null;
+  try {
+    quota = await getRemainingQuota(uid, tier);
+  } catch (e) {
+    // ignore quota errors in stream
+  }
+
+  const action = detectBackgroundAction(message, result);
+
+  // Streaming headers
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Accel-Buffering', 'no');
+
+  let aborted = false;
+  req.on('aborted', () => { aborted = true; });
+  req.on('close', () => { aborted = true; });
+
+  if (!result || !result.trim()) {
+    res.end('');
+    return;
+  }
+
+  // Write clauses progressively
+  const clauses = result.split(/(?<=[\.\!\?।])\s+/).filter(Boolean);
+  for (const c of clauses) {
+    if (aborted) break;
+    res.write(c + ' ');
+    await new Promise(r => setTimeout(r, 20));
+  }
+
+  if (!aborted) {
+    // Final metadata trailer
+    res.write(`\n` + JSON.stringify({ action, quota }));
+    res.end();
+  }
+}
+
+module.exports = { processMessage, processMessageStream, voiceIntent };
 
 
 

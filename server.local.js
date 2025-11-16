@@ -120,7 +120,13 @@ app.get('/health', (req, res) => {
 });
 
 // API routes (all require authentication)
-app.post('/ai/process', requireAuth, asyncHandler(ai.processMessage));
+app.post('/ai/process', requireAuth, asyncHandler(async (req, res) => {
+  const wantsStream = req.headers['x-stream'] === '1' || req.body?.stream === true;
+  if (wantsStream) {
+    return ai.processMessageStream(req, res);
+  }
+  return ai.processMessage(req, res);
+}));
 app.post('/voice/intent', requireAuth, asyncHandler(ai.voiceIntent));
 
 // Schedule endpoints

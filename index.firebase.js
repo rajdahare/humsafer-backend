@@ -51,7 +51,13 @@ app.get('/health', (req, res) => res.status(200).json({
 }));
 
 // API routes (all require authentication)
-app.post('/ai/process', requireAuth, asyncHandler(ai.processMessage));
+app.post('/ai/process', requireAuth, asyncHandler(async (req, res) => {
+  const wantsStream = req.headers['x-stream'] === '1' || req.body?.stream === true;
+  if (wantsStream) {
+    return ai.processMessageStream(req, res);
+  }
+  return ai.processMessage(req, res);
+}));
 app.post('/schedule/add', requireAuth, asyncHandler(schedule.add));
 app.get('/schedule/list', requireAuth, asyncHandler(schedule.list));
 app.post('/expense/add', requireAuth, asyncHandler(expense.add));
