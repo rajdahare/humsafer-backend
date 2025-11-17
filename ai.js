@@ -21,18 +21,18 @@ async function callOpenAI(prompt, history = [], fast = false) {
     return '';
   }
   try {
-    // ⚡ INSTANT: Limit history to last 2 messages for speed
-    const messages = history.length > 0 ? history.slice(-2) : [{ role: 'user', content: prompt }];
+    // Use more history for better context (like ChatGPT/Gemini)
+    const messages = history.length > 0 ? history.slice(-5) : [{ role: 'user', content: prompt }];
     
-    // Balanced tokens for complete responses while maintaining speed
-    const maxTokens = fast ? 500 : 1000;  // Increased for complete responses
+    // Full-length responses like ChatGPT - allow comprehensive answers
+    const maxTokens = fast ? 2000 : 4000;  // Much higher for complete responses
     
     const resp = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: messages,
-      temperature: 0.3,  // Lower = faster, more deterministic
+      temperature: 0.7,  // More creative and natural
       max_tokens: maxTokens,
-      top_p: 0.8,  // More focused
+      top_p: 0.9,  // More diverse responses
     });
     return resp.choices?.[0]?.message?.content || '';
   } catch (e) {
@@ -54,22 +54,22 @@ async function callGrok(prompt, conversationHistory = [], fast = false) {
   }
   
   try {
-    // ⚡ INSTANT RESPONSE: Limit history to last 2 messages only (reduces processing time)
+    // Use more history for better context (like ChatGPT/Gemini)
     let messages = [];
     if (conversationHistory && conversationHistory.length > 0) {
-      // Keep only last 2 messages for speed
-      messages = conversationHistory.slice(-2);
+      // Keep last 5 messages for better context
+      messages = conversationHistory.slice(-5);
     } else {
       messages = [{ role: 'user', content: prompt }];
     }
     
-    // Balanced tokens for complete responses while maintaining speed
-    const maxTokens = fast ? 500 : 1000;  // Increased for complete responses
+    // Full-length responses like Grok - allow comprehensive answers
+    const maxTokens = fast ? 2000 : 4000;  // Much higher for complete responses
     
     console.log(`[Grok] ⚡ INSTANT MODE: grok-4, tokens: ${maxTokens}, history: ${messages.length}`);
     
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000); // 15s timeout for longer responses
+    const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout for longer responses
     
     const resp = await fetch('https://api.x.ai/v1/chat/completions', {
       method: 'POST',
@@ -80,9 +80,9 @@ async function callGrok(prompt, conversationHistory = [], fast = false) {
       body: JSON.stringify({ 
         model: 'grok-4', 
         messages: messages,
-        temperature: 0.3,  // Lower = faster, more deterministic
-        max_tokens: maxTokens,  // Increased for complete responses
-        top_p: 0.8,  // More focused
+        temperature: 0.7,  // More creative and natural
+        max_tokens: maxTokens,  // Much higher for complete responses
+        top_p: 0.9,  // More diverse responses
         stream: false,  // Non-streaming is faster for short responses
       }),
       signal: controller.signal
@@ -134,10 +134,10 @@ async function callGeminiWithAttachments(prompt, attachments, history, systemPro
     const model = genAI.getGenerativeModel({ 
       model: modelName,
       generationConfig: {
-        temperature: 0.3,
-        maxOutputTokens: fast ? 1000 : 2000,  // Increased for complete responses
-        topP: 0.8,
-        topK: 20,
+        temperature: 0.7,  // More creative and natural
+        maxOutputTokens: fast ? 4000 : 8000,  // Much higher for complete responses
+        topP: 0.9,  // More diverse responses
+        topK: 40,   // More choices for better quality
       },
     });
     
@@ -234,10 +234,10 @@ async function callGemini(prompt, modelName = 'models/gemini-2.5-flash', fast = 
     const model = genAI.getGenerativeModel({ 
       model: modelName,
       generationConfig: {
-        temperature: 0.3,  // Lower = faster, more deterministic
-        maxOutputTokens: fast ? 1000 : 2000,  // Increased for complete responses
-        topP: 0.8,  // More focused
-        topK: 20,   // Fewer choices = faster
+        temperature: 0.7,  // More creative and natural like Gemini
+        maxOutputTokens: fast ? 4000 : 8000,  // Much higher for complete responses like ChatGPT/Gemini
+        topP: 0.9,  // More diverse responses
+        topK: 40,   // More choices for better quality
       },
     });
     
@@ -265,8 +265,8 @@ async function callGemini(prompt, modelName = 'models/gemini-2.5-flash', fast = 
         const model = genAI.getGenerativeModel({ 
           model: 'models/gemini-2.0-flash',
           generationConfig: {
-            temperature: 0.3,
-            maxOutputTokens: fast ? 1000 : 2000,  // Increased for complete responses
+            temperature: 0.7,  // More creative and natural
+            maxOutputTokens: fast ? 4000 : 8000,  // Much higher for complete responses
           },
         });
         const result = await model.generateContent(prompt);
@@ -756,7 +756,7 @@ async function processMessage(req, res) {
     // Priority: Speed over complexity when fast=true
     
     if (mode === 'night') {
-      const systemPrompt = 'You are Ev – witty, haunting, romantic. Keep 18+ vibe with tone. Be conversational, brief.';
+      const systemPrompt = 'You are Ev – witty, haunting, romantic. Keep 18+ vibe with tone. Be conversational and detailed.';
       
       const fullHistory = [
         { role: 'system', content: systemPrompt },
@@ -782,11 +782,11 @@ async function processMessage(req, res) {
     } else {
       // General modes - ALL TIERS
       const modePrompts = {
-        funLearn: 'You are a fun educational AI. Be brief, engaging.',
-        health: 'You are a health assistant. Be helpful, brief.',
-        finance: 'You are a finance advisor. Be practical, brief.'
+        funLearn: 'You are a fun educational AI. Provide comprehensive, detailed explanations. Be engaging and thorough like ChatGPT.',
+        health: 'You are a health assistant. Provide complete, helpful information with all necessary details and explanations.',
+        finance: 'You are a finance advisor. Give practical, comprehensive advice with full explanations and examples.'
       };
-      const systemPrompt = modePrompts[mode] || 'You are a helpful AI assistant. Be brief.';
+      const systemPrompt = modePrompts[mode] || 'You are a helpful AI assistant. Provide complete, detailed responses like ChatGPT or Gemini. Be thorough and comprehensive.';
       
       const fullHistory = [
         { role: 'system', content: systemPrompt },
@@ -1127,18 +1127,18 @@ async function processMessageStream(req, res) {
   const hasOpenAIKey = !!OPENAI_API_KEY;
   const hasGeminiKey = !!GOOGLE_AI_API_KEY;
 
-  // Prepare minimal history (last 2)
-  let history = Array.isArray(conversationHistory) ? conversationHistory.slice(-2) : [];
+  // Use more history for better context (like ChatGPT/Gemini)
+  let history = Array.isArray(conversationHistory) ? conversationHistory.slice(-5) : [];
 
-  // Compose prompt
+  // Compose prompt - encourage comprehensive responses like ChatGPT/Gemini
   const modePrompts = {
-    funLearn: 'You are a fun educational AI. Be brief, engaging.',
-    health: 'You are a health assistant. Be helpful, brief.',
-    finance: 'You are a finance advisor. Be practical, brief.'
+    funLearn: 'You are a fun educational AI. Provide comprehensive, detailed explanations. Be engaging and thorough like ChatGPT.',
+    health: 'You are a health assistant. Provide complete, helpful information with all necessary details and explanations.',
+    finance: 'You are a finance advisor. Give practical, comprehensive advice with full explanations and examples.'
   };
   const systemPrompt = mode === 'night'
-    ? 'You are Ev – witty, haunting, romantic. Keep 18+ vibe with tone. Be conversational, brief.'
-    : (modePrompts[mode] || 'You are a helpful AI assistant. Be brief.');
+    ? 'You are Ev – witty, haunting, romantic. Keep 18+ vibe with tone. Be conversational and detailed.'
+    : (modePrompts[mode] || 'You are a helpful AI assistant. Provide complete, detailed responses like ChatGPT or Gemini. Be thorough and comprehensive.');
   const simplePrompt = `${systemPrompt}\nRecent: ${history.map(h => `${h.role}: ${h.content}`).join('\n')}\nUser: ${message}\nAssistant:`;
 
   // Generate result quickly prioritizing Gemini
