@@ -24,8 +24,8 @@ async function callOpenAI(prompt, history = [], fast = false) {
     // ⚡ INSTANT: Limit history to last 2 messages for speed
     const messages = history.length > 0 ? history.slice(-2) : [{ role: 'user', content: prompt }];
     
-    // ⚡ ULTRA-FAST: Minimal tokens for instant responses
-    const maxTokens = fast ? 100 : 200;  // Very short = faster!
+    // Balanced tokens for complete responses while maintaining speed
+    const maxTokens = fast ? 500 : 1000;  // Increased for complete responses
     
     const resp = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
@@ -63,13 +63,13 @@ async function callGrok(prompt, conversationHistory = [], fast = false) {
       messages = [{ role: 'user', content: prompt }];
     }
     
-    // ⚡ ULTRA-FAST: Minimal tokens for instant responses
-    const maxTokens = fast ? 80 : 120;  // Very short responses = faster!
+    // Balanced tokens for complete responses while maintaining speed
+    const maxTokens = fast ? 500 : 1000;  // Increased for complete responses
     
     console.log(`[Grok] ⚡ INSTANT MODE: grok-4, tokens: ${maxTokens}, history: ${messages.length}`);
     
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6000); // 6s timeout (faster fail)
+    const timeout = setTimeout(() => controller.abort(), 15000); // 15s timeout for longer responses
     
     const resp = await fetch('https://api.x.ai/v1/chat/completions', {
       method: 'POST',
@@ -81,7 +81,7 @@ async function callGrok(prompt, conversationHistory = [], fast = false) {
         model: 'grok-4', 
         messages: messages,
         temperature: 0.3,  // Lower = faster, more deterministic
-        max_tokens: maxTokens,  // Minimal tokens
+        max_tokens: maxTokens,  // Increased for complete responses
         top_p: 0.8,  // More focused
         stream: false,  // Non-streaming is faster for short responses
       }),
@@ -135,7 +135,7 @@ async function callGeminiWithAttachments(prompt, attachments, history, systemPro
       model: modelName,
       generationConfig: {
         temperature: 0.3,
-        maxOutputTokens: fast ? 200 : 400,  // More tokens for image analysis
+        maxOutputTokens: fast ? 1000 : 2000,  // Increased for complete responses
         topP: 0.8,
         topK: 20,
       },
@@ -235,7 +235,7 @@ async function callGemini(prompt, modelName = 'models/gemini-2.5-flash', fast = 
       model: modelName,
       generationConfig: {
         temperature: 0.3,  // Lower = faster, more deterministic
-        maxOutputTokens: fast ? 100 : 200,  // Minimal tokens for instant responses
+        maxOutputTokens: fast ? 1000 : 2000,  // Increased for complete responses
         topP: 0.8,  // More focused
         topK: 20,   // Fewer choices = faster
       },
@@ -266,7 +266,7 @@ async function callGemini(prompt, modelName = 'models/gemini-2.5-flash', fast = 
           model: 'models/gemini-2.0-flash',
           generationConfig: {
             temperature: 0.3,
-            maxOutputTokens: fast ? 100 : 200,
+            maxOutputTokens: fast ? 1000 : 2000,  // Increased for complete responses
           },
         });
         const result = await model.generateContent(prompt);
@@ -866,11 +866,13 @@ async function processMessage(req, res) {
     }
     
     // Apply reply style shortening if requested
-    if (replyStyle === 'short' && result) {
-      result = shortenToTwoSentences(result);
-    }
-    
-    console.log(`[processMessage] ✅ Response ready (${result?.length || 0} chars)`);
+  // Only shorten if explicitly requested AND result is very long (to prevent truncation of normal responses)
+  if (replyStyle === 'short' && result && result.length > 500) {
+    result = shortenToTwoSentences(result);
+    console.log(`[processMessage] 📝 Shortened response to 2 sentences (was ${result.length} chars)`);
+  }
+  
+  console.log(`[processMessage] ✅ Response ready (${result?.length || 0} chars)`);
   } catch (e) {
     console.error('[processMessage] Error:', e.message || e);
     
@@ -1160,8 +1162,10 @@ async function processMessageStream(req, res) {
     result = '';
   }
 
-  if (replyStyle === 'short' && result) {
+  // Only shorten if explicitly requested AND result is very long (to prevent truncation of normal responses)
+  if (replyStyle === 'short' && result && result.length > 500) {
     result = shortenToTwoSentences(result);
+    console.log(`[processMessageStream] 📝 Shortened response to 2 sentences (was ${result.length} chars)`);
   }
 
   // Get quota (non-blocking semantics ok here)
