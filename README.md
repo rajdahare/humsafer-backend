@@ -5,12 +5,15 @@ Backend API for Humsafer - Your AI companion mobile application.
 ## 🚀 Features
 
 - AI-powered conversation (xAI Grok, OpenAI, Google AI)
-- Voice intent processing
-- Schedule management
+- Voice intent processing with continuous mode
+- Automatic contact calling (Siri-like)
+- Fast response optimization for voice interactions
+- Schedule management with Google Meet integration
+- Auto-save calendar events
 - Expense tracking
 - Payment processing (Razorpay)
 - Firebase Authentication
-- User subscription management
+- User subscription management with usage quotas
 
 ## 📋 Prerequisites
 
@@ -23,7 +26,7 @@ Backend API for Humsafer - Your AI companion mobile application.
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/YOUR_USERNAME/humsafer-backend.git
+git clone https://github.com/rajdahare/humsafer-backend.git
 cd humsafer-backend
 ```
 

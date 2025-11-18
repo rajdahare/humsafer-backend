@@ -74,7 +74,7 @@ const { requireAuth, asyncHandler } = require('./utils');
 const ai = require('./ai');
 const schedule = require('./schedule');
 const expense = require('./expense');
-const mom = require('./mom');
+// const mom = require('./mom'); // Commented out - file doesn't exist
 const razorpay = require('./razorpay');
 const auth = require('./auth');
 
@@ -91,7 +91,7 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-demo', 'firebase-auth-token'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-demo', 'firebase-auth-token', 'x-stream', 'X-Stream', 'Accept'],
   exposedHeaders: ['Content-Length', 'Content-Type'],
   maxAge: 86400, // 24 hours
   preflightContinue: false,
@@ -120,7 +120,13 @@ app.get('/health', (req, res) => {
 });
 
 // API routes (all require authentication)
-app.post('/ai/process', requireAuth, asyncHandler(ai.processMessage));
+app.post('/ai/process', requireAuth, asyncHandler(async (req, res) => {
+  const wantsStream = req.headers['x-stream'] === '1' || req.body?.stream === true;
+  if (wantsStream) {
+    return ai.processMessageStream(req, res);
+  }
+  return ai.processMessage(req, res);
+}));
 app.post('/voice/intent', requireAuth, asyncHandler(ai.voiceIntent));
 
 // Schedule endpoints
@@ -132,7 +138,7 @@ app.post('/expense/add', requireAuth, asyncHandler(expense.add));
 app.get('/report/monthly', requireAuth, asyncHandler(expense.monthly));
 
 // Mom/recording endpoints
-app.post('/mom/record', requireAuth, asyncHandler(mom.record));
+// app.post('/mom/record', requireAuth, asyncHandler(mom.record)); // Commented out - mom module doesn't exist
 
 // Auth endpoints
 app.post('/auth/send-otp', requireAuth, asyncHandler(auth.sendOTP));
@@ -165,6 +171,22 @@ app.get('/subscription/me', requireAuth, asyncHandler(async (req, res) => {
   } catch (e) {
     console.error('[Subscription] Firestore error:', e.message);
     return res.json({ tier: null, status: 'error', error: e.message });
+  }
+}));
+
+// Usage quota endpoint
+const { getRemainingQuota } = require('./usage-limits');
+app.get('/usage/quota', requireAuth, asyncHandler(async (req, res) => {
+  const uid = req.userId;
+  const { tierLevel } = req.query;
+  
+  try {
+    const quota = await getRemainingQuota(uid, tierLevel || 'free');
+    console.log(`[Usage] Quota check for ${uid}:`, quota);
+    return res.json(quota);
+  } catch (e) {
+    console.error('[Usage] Error getting quota:', e.message);
+    return res.status(500).json({ error: 'Failed to get quota', detail: e.message });
   }
 }));
 

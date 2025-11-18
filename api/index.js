@@ -39,7 +39,7 @@ app.use(cors({
   origin: '*',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-demo', 'firebase-auth-token'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-demo', 'firebase-auth-token', 'x-stream', 'X-Stream', 'Accept'],
 }));
 
 app.use(express.json({ limit: '10mb' }));
@@ -66,7 +66,14 @@ app.get('/api/health', (req, res) => {
 });
 
 // API routes (all require authentication)
-app.post('/ai/process', requireAuth, asyncHandler(ai.processMessage));
+// Support streaming when client asks (X-Stream: 1 or body.stream === true)
+app.post('/ai/process', requireAuth, asyncHandler(async (req, res) => {
+  const wantsStream = req.headers['x-stream'] === '1' || req.body?.stream === true;
+  if (wantsStream) {
+    return ai.processMessageStream(req, res);
+  }
+  return ai.processMessage(req, res);
+}));
 app.post('/voice/intent', requireAuth, asyncHandler(ai.voiceIntent));
 app.post('/schedule/add', requireAuth, asyncHandler(schedule.add));
 app.get('/schedule/list', requireAuth, asyncHandler(schedule.list));
