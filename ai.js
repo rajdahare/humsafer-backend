@@ -11,7 +11,7 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 const genAI = GOOGLE_AI_API_KEY ? new GoogleGenerativeAI(GOOGLE_AI_API_KEY) : null;
 
-async function callOpenAI(prompt) {
+async function callOpenAI(prompt, maxTokens = null) {
   if (process.env.MOCK_AI === 'true') {
     return `Mock response: ${prompt.slice(0, 60)}...`;
   }
@@ -20,10 +20,25 @@ async function callOpenAI(prompt) {
     return '';
   }
   try {
+    // ⚡ SMART TOKEN LIMITING: Base max_tokens on input length
+    const inputLength = prompt.length;
+    let calculatedMaxTokens = maxTokens;
+    if (!calculatedMaxTokens) {
+      if (inputLength < 50) {
+        calculatedMaxTokens = 150; // Very short responses
+      } else if (inputLength < 200) {
+        calculatedMaxTokens = 300; // Medium responses
+      } else {
+        calculatedMaxTokens = 500; // Longer responses
+      }
+    }
+    
+    console.log(`⚡ [OpenAI] Using max_tokens: ${calculatedMaxTokens}, input_length: ${inputLength}`);
     const resp = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4o-mini', // Fast model
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.6,
+      max_tokens: calculatedMaxTokens,
     });
     return resp.choices?.[0]?.message?.content || '';
   } catch (e) {
@@ -37,7 +52,7 @@ async function callOpenAI(prompt) {
   }
 }
 
-async function callGrok(prompt, conversationHistory = []) {
+async function callGrok(prompt, conversationHistory = [], maxTokens = null) {
   const apiKey = process.env.XAI_API_KEY;
   
   console.log('🔍 [Grok] API Key check:', apiKey ? `SET (${apiKey.substring(0, 10)}...)` : '❌ NOT SET');
@@ -53,10 +68,17 @@ async function callGrok(prompt, conversationHistory = []) {
     // Build messages array from conversation history
     let messages = [];
     
+    // ⚡ OPTIMIZATION: Limit history to last 5 messages for faster responses
+    let limitedHistory = conversationHistory || [];
+    if (limitedHistory.length > 5) {
+      console.log(`⚡ [Grok] Trimming history from ${limitedHistory.length} to 5 for faster response`);
+      limitedHistory = limitedHistory.slice(-5);
+    }
+    
     // Add conversation history if provided
-    if (conversationHistory && conversationHistory.length > 0) {
-      console.log(`📚 [Grok] Using ${conversationHistory.length} history messages`);
-      messages = conversationHistory.map(msg => ({
+    if (limitedHistory && limitedHistory.length > 0) {
+      console.log(`📚 [Grok] Using ${limitedHistory.length} history messages`);
+      messages = limitedHistory.map(msg => ({
         role: msg.role,
         content: msg.content
       }));
@@ -66,7 +88,23 @@ async function callGrok(prompt, conversationHistory = []) {
       messages = [{ role: 'user', content: prompt }];
     }
     
-    console.log('🚀 [Grok] Calling API with model: grok-2-1212');
+    // ⚡ SMART TOKEN LIMITING: Base max_tokens on input length
+    // Short questions (< 50 chars) = short answers (150 tokens)
+    // Medium questions (50-200 chars) = medium answers (300 tokens)
+    // Long questions (> 200 chars) = longer answers (500 tokens)
+    const inputLength = prompt.length;
+    let calculatedMaxTokens = maxTokens;
+    if (!calculatedMaxTokens) {
+      if (inputLength < 50) {
+        calculatedMaxTokens = 150; // Very short responses
+      } else if (inputLength < 200) {
+        calculatedMaxTokens = 300; // Medium responses
+      } else {
+        calculatedMaxTokens = 500; // Longer responses
+      }
+    }
+    
+    console.log(`🚀 [Grok] Calling API with model: grok-2-1212, max_tokens: ${calculatedMaxTokens}, input_length: ${inputLength}`);
     const resp = await fetch('https://api.x.ai/v1/chat/completions', {
       method: 'POST',
       headers: { 
@@ -77,7 +115,8 @@ async function callGrok(prompt, conversationHistory = []) {
         model: 'grok-2-1212', 
         messages: messages,
         temperature: 0.7,
-        max_tokens: 1000,
+        max_tokens: calculatedMaxTokens,
+        stream: false, // Disable streaming for faster initial response
       }),
     });
     
@@ -376,12 +415,24 @@ async function processMessage(req, res) {
   let result = '';
   try {
     // Prepare conversation history for context
-    // LIMIT history to prevent stack overflow (keep only last 20 messages)
+    // ⚡ OPTIMIZATION: Limit to last 5 messages for faster responses (reduced from 20)
     let history = conversationHistory || [];
-    if (history.length > 20) {
-      console.log(`[processMessage] Trimming history from ${history.length} to 20 messages`);
-      history = history.slice(-20); // Keep only last 20 messages
+    if (history.length > 5) {
+      console.log(`⚡ [processMessage] Trimming history from ${history.length} to 5 messages for faster response`);
+      history = history.slice(-5); // Keep only last 5 messages
     }
+    
+    // ⚡ Calculate max tokens based on input length
+    const inputLength = message.length;
+    let maxTokens = null;
+    if (inputLength < 50) {
+      maxTokens = 150; // Short question = short answer
+    } else if (inputLength < 200) {
+      maxTokens = 300; // Medium question = medium answer
+    } else {
+      maxTokens = 500; // Long question = longer answer
+    }
+    console.log(`⚡ [processMessage] Input length: ${inputLength}, max_tokens: ${maxTokens}`);
     
     // AI Provider Selection Based on Tier:
     // Tier 1 (Basic): OpenAI only for all modes
@@ -405,7 +456,7 @@ async function processMessage(req, res) {
           console.log('[processMessage] ✓ TIER 2/3: Using Grok AI for night mode (premium exclusive)');
           // Add current user message to history
           const grokHistory = [...fullHistory, { role: 'user', content: message }];
-          result = await callGrok(message, grokHistory);
+          result = await callGrok(message, grokHistory, maxTokens);
           console.log(`[processMessage] Grok result: ${result ? 'success' : 'failed'}`);
         } else {
           console.error('[processMessage] ✗ TIER 2/3: Grok API key missing! Cannot provide premium adult mode');
@@ -414,7 +465,8 @@ async function processMessage(req, res) {
         // Fallback only if Grok fails
         if (!result && hasOpenAIKey) {
           console.log('[processMessage] Fallback to OpenAI for night mode');
-          result = await callOpenAI(`${systemPrompt}\n\nConversation history:\n${JSON.stringify(history)}\n\nUser: ${message}`);
+          const openAIPrompt = `${systemPrompt}\n\nConversation history:\n${JSON.stringify(history)}\n\nUser: ${message}`;
+          result = await callOpenAI(openAIPrompt, maxTokens);
         }
       } else {
         // TIER 1 or Trial: Night mode should be BLOCKED by frontend
@@ -445,16 +497,23 @@ async function processMessage(req, res) {
         console.log('[processMessage] ✅ Using Grok AI for general mode (primary)');
         // Add current user message to history
         const grokHistory = [...fullHistory, { role: 'user', content: message }];
-        result = await callGrok(message, grokHistory);
+        result = await callGrok(message, grokHistory, maxTokens);
         console.log(`[processMessage] Grok result: ${result ? 'success' : 'failed'}`);
       }
       
       // Fallback to OpenAI if Grok fails
       if (!result && hasOpenAIKey) {
         console.log('[processMessage] Fallback to OpenAI for general mode');
-        result = await callOpenAI(`${systemPrompt}\n\nConversation history:\n${JSON.stringify(history)}\n\nUser: ${message}`);
+        const openAIPrompt = `${systemPrompt}\n\nConversation history:\n${JSON.stringify(history)}\n\nUser: ${message}`;
+        result = await callOpenAI(openAIPrompt, maxTokens);
         console.log(`[processMessage] OpenAI result: ${result ? 'success' : 'failed'}`);
       }
+    }
+    
+    // ⚡ TRUNCATE RESPONSE if too long (safety check)
+    if (result && result.length > 2000) {
+      console.log(`⚡ [processMessage] Response too long (${result.length} chars), truncating to 2000 chars`);
+      result = result.substring(0, 2000) + '...';
     }
     
     console.log(`[processMessage] Final result length: ${result?.length || 0}`);
