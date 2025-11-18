@@ -34,13 +34,34 @@ const auth = require('../auth');
 
 const app = express();
 
-// CORS Configuration
-app.use(cors({
-  origin: '*',
+// CORS Configuration - Handle preflight requests first
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // Allow all origins (including localhost for development)
+    callback(null, true);
+  },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-demo', 'firebase-auth-token', 'x-stream', 'X-Stream', 'Accept'],
-}));
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-demo', 'firebase-auth-token', 'x-stream', 'X-Stream', 'Accept', 'X-Requested-With'],
+  exposedHeaders: ['Content-Type', 'Authorization'],
+  maxAge: 86400, // 24 hours
+};
+
+// Apply CORS middleware
+app.use(cors(corsOptions));
+
+// Explicitly handle OPTIONS requests for all routes BEFORE authentication
+app.options('*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-demo, firebase-auth-token, x-stream, X-Stream, Accept, X-Requested-With');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Max-Age', '86400');
+  res.sendStatus(200);
+});
 
 app.use(express.json({ limit: '10mb' }));
 
