@@ -121,10 +121,37 @@ app.get('/subscription/me', requireAuth, asyncHandler(async (req, res) => {
 }));
 
 // Wrap Express app with serverless-http for Vercel compatibility
-// This ensures proper handling of OPTIONS requests and other HTTP methods
-const handler = serverless(app, {
+// serverless-http converts Vercel's request format to Express format
+const serverlessHandler = serverless(app, {
   binary: ['image/*', 'application/pdf', 'application/octet-stream']
 });
+
+// Custom wrapper to intercept OPTIONS requests
+// Vercel passes (req, res) format, so we check req.method
+const handler = (req, res) => {
+  // Intercept OPTIONS requests before serverless-http processes them
+  if (req.method && req.method.toUpperCase() === 'OPTIONS') {
+    console.log('[Handler] OPTIONS preflight request intercepted');
+    console.log('[Handler] Method:', req.method);
+    console.log('[Handler] URL:', req.url);
+    console.log('[Handler] Headers:', JSON.stringify(req.headers));
+    
+    // Set CORS headers
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-demo, firebase-auth-token, x-stream, X-Stream, Accept, X-Requested-With');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Max-Age', '86400');
+    
+    // Return 200 OK immediately
+    res.writeHead(200);
+    res.end();
+    return;
+  }
+  
+  // For all other requests, delegate to serverless-http handler
+  return serverlessHandler(req, res);
+};
 
 // Export handler for Vercel
 module.exports = handler;
