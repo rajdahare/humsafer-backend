@@ -34,7 +34,17 @@ const auth = require('../auth');
 
 const app = express();
 
-// CORS Configuration - Handle preflight requests first
+// CRITICAL: Handle OPTIONS requests FIRST, before any other middleware
+app.options('*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-demo, firebase-auth-token, x-stream, X-Stream, Accept, X-Requested-With');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Max-Age', '86400');
+  return res.status(200).end();
+});
+
+// CORS Configuration - Handle preflight requests
 const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
@@ -52,16 +62,6 @@ const corsOptions = {
 
 // Apply CORS middleware
 app.use(cors(corsOptions));
-
-// Explicitly handle OPTIONS requests for all routes BEFORE authentication
-app.options('*', (req, res) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-demo, firebase-auth-token, x-stream, X-Stream, Accept, X-Requested-With');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Max-Age', '86400');
-  res.sendStatus(200);
-});
 
 app.use(express.json({ limit: '10mb' }));
 
@@ -89,6 +89,10 @@ app.get('/api/health', (req, res) => {
 // API routes (all require authentication)
 // Support streaming when client asks (X-Stream: 1 or body.stream === true)
 app.post('/ai/process', requireAuth, asyncHandler(async (req, res) => {
+  // Set CORS headers on actual response
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  
   const wantsStream = req.headers['x-stream'] === '1' || req.body?.stream === true;
   if (wantsStream) {
     return ai.processMessageStream(req, res);
