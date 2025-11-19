@@ -118,14 +118,17 @@ app.get('/subscription/me', requireAuth, asyncHandler(async (req, res) => {
 
 // Vercel-compatible handler that ensures OPTIONS requests are handled
 const handler = async (req, res) => {
-  // Handle OPTIONS preflight requests FIRST
-  if (req.method === 'OPTIONS') {
+  // Handle OPTIONS preflight requests FIRST - before any Express middleware
+  if (req.method === 'OPTIONS' || req.method === 'options') {
+    console.log('[Handler] OPTIONS preflight request detected');
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-demo, firebase-auth-token, x-stream, X-Stream, Accept, X-Requested-With');
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Max-Age', '86400');
-    return res.status(200).end();
+    res.status(200);
+    res.end();
+    return;
   }
   
   // For all other requests, use Express app
