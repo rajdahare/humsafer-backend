@@ -67,6 +67,21 @@ app.options('*', cors(corsOptions)); // Handle preflight requests for all routes
 
 app.use(express.json({ limit: '10mb' }));
 
+// Root endpoint
+app.get('/', (req, res) => {
+  res.status(200).json({ 
+    ok: true, 
+    message: 'Humsafer API Server',
+    timestamp: new Date().toISOString(),
+    service: 'Humsafer API',
+    firebase: firebaseInitialized ? 'initialized' : 'not initialized',
+    endpoints: {
+      health: '/health',
+      apiHealth: '/api/health'
+    }
+  });
+});
+
 // Health check endpoint (public)
 app.get('/health', (req, res) => {
   res.status(200).json({ 
@@ -111,6 +126,19 @@ app.get('/subscription/me', requireAuth, asyncHandler(async (req, res) => {
   const status = userDoc.data()?.subscriptionStatus || null;
   return res.json({ tier, status });
 }));
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ error: 'Not Found', path: req.path });
+});
+
+// Error handler
+app.use((err, req, res, next) => {
+  console.error('Error:', err);
+  res.status(err.status || 500).json({
+    error: err.message || 'Internal Server Error'
+  });
+});
 
 // Wrap Express app with serverless-http
 // This is required for Vercel serverless functions
