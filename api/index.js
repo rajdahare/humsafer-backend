@@ -25,13 +25,21 @@ if (!admin.apps.length) {
   }
 }
 
-// Import modules
-const { requireAuth, asyncHandler } = require('../utils');
-const ai = require('../ai');
-const schedule = require('../schedule');
-const expense = require('../expense');
-const razorpay = require('../razorpay');
-const auth = require('../auth');
+// Import modules with error handling
+let requireAuth, asyncHandler, ai, schedule, expense, razorpay, auth;
+try {
+  const utils = require('../utils');
+  requireAuth = utils.requireAuth;
+  asyncHandler = utils.asyncHandler;
+  ai = require('../ai');
+  schedule = require('../schedule');
+  expense = require('../expense');
+  razorpay = require('../razorpay');
+  auth = require('../auth');
+} catch (error) {
+  console.error('❌ Error loading modules:', error);
+  throw error;
+}
 
 const app = express();
 
