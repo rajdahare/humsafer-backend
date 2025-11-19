@@ -43,43 +43,32 @@ try {
 
 const app = express();
 
-// CORS Configuration - Handle preflight requests
+// Enhanced CORS configuration (matching server.local.js)
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
+    // Allow requests with no origin (mobile apps, Postman, curl)
     if (!origin) return callback(null, true);
     
-    // Allow all origins (including localhost for development)
+    // Allow all origins (or restrict to specific domains in production)
     callback(null, true);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-demo', 'firebase-auth-token', 'x-stream', 'X-Stream', 'Accept', 'X-Requested-With'],
-  exposedHeaders: ['Content-Type', 'Authorization'],
+  exposedHeaders: ['Content-Length', 'Content-Type'],
   maxAge: 86400, // 24 hours
   preflightContinue: false,
-  optionsSuccessStatus: 200
+  optionsSuccessStatus: 204
 };
 
-// Apply CORS middleware FIRST - this handles OPTIONS automatically
+// Middleware - Apply CORS first
 app.use(cors(corsOptions));
-
-// Explicit OPTIONS handler as backup (CORS middleware should handle this, but ensure it works)
-app.options('*', (req, res) => {
-  console.log('[Express] OPTIONS request received for:', req.url || req.path);
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-demo, firebase-auth-token, x-stream, X-Stream, Accept, X-Requested-With');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Max-Age', '86400');
-  res.status(200).send('');
-});
+app.options('*', cors(corsOptions)); // Handle preflight requests for all routes
 
 app.use(express.json({ limit: '10mb' }));
 
-// Health check (PUBLIC - NO AUTH)
+// Health check endpoint (public)
 app.get('/health', (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
   res.status(200).json({ 
     ok: true, 
     timestamp: new Date().toISOString(),
@@ -89,7 +78,6 @@ app.get('/health', (req, res) => {
 });
 
 app.get('/api/health', (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
   res.status(200).json({ 
     ok: true, 
     timestamp: new Date().toISOString(),
@@ -101,10 +89,6 @@ app.get('/api/health', (req, res) => {
 // API routes (all require authentication)
 // Support streaming when client asks (X-Stream: 1 or body.stream === true)
 app.post('/ai/process', requireAuth, asyncHandler(async (req, res) => {
-  // Set CORS headers on actual response
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  
   const wantsStream = req.headers['x-stream'] === '1' || req.body?.stream === true;
   if (wantsStream) {
     return ai.processMessageStream(req, res);
