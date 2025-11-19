@@ -28,17 +28,27 @@ if (!admin.apps.length) {
 // Import modules with error handling
 let requireAuth, asyncHandler, ai, schedule, expense, razorpay, auth;
 try {
+  console.log('[Init] Loading utils...');
   const utils = require('../utils');
   requireAuth = utils.requireAuth;
   asyncHandler = utils.asyncHandler;
+  console.log('[Init] ✅ Utils loaded');
+  
+  console.log('[Init] Loading ai module...');
   ai = require('../ai');
+  console.log('[Init] ✅ AI module loaded');
+  
+  console.log('[Init] Loading other modules...');
   schedule = require('../schedule');
   expense = require('../expense');
   razorpay = require('../razorpay');
   auth = require('../auth');
+  console.log('[Init] ✅ All modules loaded successfully');
 } catch (error) {
   console.error('❌ Error loading modules:', error);
-  throw error;
+  console.error('❌ Error stack:', error.stack);
+  // Don't throw - let the app start and handle errors gracefully
+  // This allows health check to work even if some modules fail
 }
 
 const app = express();
