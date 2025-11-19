@@ -2,6 +2,7 @@
 const admin = require('firebase-admin');
 const express = require('express');
 const cors = require('cors');
+const serverless = require('serverless-http');
 
 // Initialize Firebase Admin (only once)
 let firebaseInitialized = false;
@@ -52,20 +53,19 @@ const corsOptions = {
   optionsSuccessStatus: 200
 };
 
-// CRITICAL: Handle OPTIONS requests FIRST, before any other middleware
-// This must be before CORS middleware to ensure it's called first
-app.options('*', cors(corsOptions), (req, res) => {
-  console.log('[Express] OPTIONS request received for:', req.url);
+// Apply CORS middleware FIRST - this handles OPTIONS automatically
+app.use(cors(corsOptions));
+
+// Explicit OPTIONS handler as backup (CORS middleware should handle this, but ensure it works)
+app.options('*', (req, res) => {
+  console.log('[Express] OPTIONS request received for:', req.url || req.path);
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-demo, firebase-auth-token, x-stream, X-Stream, Accept, X-Requested-With');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.header('Access-Control-Max-Age', '86400');
-  return res.status(200).send('');
+  res.status(200).send('');
 });
-
-// Apply CORS middleware
-app.use(cors(corsOptions));
 
 app.use(express.json({ limit: '10mb' }));
 
@@ -120,33 +120,12 @@ app.get('/subscription/me', requireAuth, asyncHandler(async (req, res) => {
   return res.json({ tier, status });
 }));
 
-// Vercel-compatible handler that ensures OPTIONS requests are handled
-// This wrapper intercepts OPTIONS requests before Express middleware
-const handler = async (req, res) => {
-  // Handle OPTIONS preflight requests FIRST - before any Express middleware
-  const method = req.method || req.headers?.[':method'] || '';
-  
-  if (method.toUpperCase() === 'OPTIONS') {
-    console.log('[Handler] OPTIONS preflight request detected');
-    console.log('[Handler] Method:', method);
-    console.log('[Handler] URL:', req.url || req.path);
-    
-    // Set CORS headers explicitly
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-demo, firebase-auth-token, x-stream, X-Stream, Accept, X-Requested-With');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Max-Age', '86400');
-    
-    // Send 200 OK response immediately
-    res.status(200).send('');
-    return;
-  }
-  
-  // For all other requests, delegate to Express app
-  app(req, res);
-};
+// Wrap Express app with serverless-http for Vercel compatibility
+// This ensures proper handling of OPTIONS requests and other HTTP methods
+const handler = serverless(app, {
+  binary: ['image/*', 'application/pdf', 'application/octet-stream']
+});
 
-// Export for Vercel
+// Export handler for Vercel
 module.exports = handler;
 

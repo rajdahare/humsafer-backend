@@ -27,6 +27,7 @@
     "nodemon": "^3.1.10",
     "openai": "^4.28.0",
     "razorpay": "^2.9.6",
+    "serverless-http": "^4.0.0",
     "stripe": "^14.21.0",
     "twilio": "^5.0.0"
   }
