@@ -34,16 +34,6 @@ const auth = require('../auth');
 
 const app = express();
 
-// CRITICAL: Handle OPTIONS requests FIRST, before any other middleware
-app.options('*', (req, res) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-demo, firebase-auth-token, x-stream, X-Stream, Accept, X-Requested-With');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Max-Age', '86400');
-  return res.status(200).end();
-});
-
 // CORS Configuration - Handle preflight requests
 const corsOptions = {
   origin: function (origin, callback) {
@@ -58,7 +48,21 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization', 'x-demo', 'firebase-auth-token', 'x-stream', 'X-Stream', 'Accept', 'X-Requested-With'],
   exposedHeaders: ['Content-Type', 'Authorization'],
   maxAge: 86400, // 24 hours
+  preflightContinue: false,
+  optionsSuccessStatus: 200
 };
+
+// CRITICAL: Handle OPTIONS requests FIRST, before any other middleware
+// This must be before CORS middleware to ensure it's called first
+app.options('*', cors(corsOptions), (req, res) => {
+  console.log('[Express] OPTIONS request received for:', req.url);
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-demo, firebase-auth-token, x-stream, X-Stream, Accept, X-Requested-With');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Max-Age', '86400');
+  return res.status(200).send('');
+});
 
 // Apply CORS middleware
 app.use(cors(corsOptions));
@@ -118,24 +122,24 @@ app.get('/subscription/me', requireAuth, asyncHandler(async (req, res) => {
 
 // Vercel-compatible handler that ensures OPTIONS requests are handled
 // This wrapper intercepts OPTIONS requests before Express middleware
-const handler = (req, res) => {
+const handler = async (req, res) => {
   // Handle OPTIONS preflight requests FIRST - before any Express middleware
-  const method = req.method || '';
+  const method = req.method || req.headers?.[':method'] || '';
+  
   if (method.toUpperCase() === 'OPTIONS') {
-    console.log('[Handler] OPTIONS preflight request detected, method:', method);
-    console.log('[Handler] Request URL:', req.url);
-    console.log('[Handler] Request headers:', JSON.stringify(req.headers));
+    console.log('[Handler] OPTIONS preflight request detected');
+    console.log('[Handler] Method:', method);
+    console.log('[Handler] URL:', req.url || req.path);
     
-    // Set CORS headers
+    // Set CORS headers explicitly
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS,PATCH');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-demo, firebase-auth-token, x-stream, X-Stream, Accept, X-Requested-With');
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Max-Age', '86400');
     
-    // Send 200 OK response
-    res.writeHead(200);
-    res.end();
+    // Send 200 OK response immediately
+    res.status(200).send('');
     return;
   }
   
