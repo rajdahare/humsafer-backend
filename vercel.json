@@ -38,16 +38,6 @@
         }
       ]
     }
-  ],
-  "rewrites": [
-    {
-      "source": "/ai/process",
-      "destination": "/api/index"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/api/index"
-    }
   ]
 }
 
