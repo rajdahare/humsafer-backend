@@ -2,7 +2,6 @@
 const admin = require('firebase-admin');
 const express = require('express');
 const cors = require('cors');
-const { createServer } = require('@vercel/node');
 
 // Initialize Firebase Admin (only once)
 let firebaseInitialized = false;
@@ -128,10 +127,7 @@ app.get('/subscription/me', requireAuth, asyncHandler(async (req, res) => {
   return res.json({ tier, status });
 }));
 
-// Create Vercel-compatible server
-// @vercel/node properly handles Express apps for Vercel serverless functions
-const server = createServer(app);
-
-// Export server for Vercel
-module.exports = server;
+// Export Express app directly for Vercel
+// Vercel handles Express apps natively - no wrapper needed
+module.exports = app;
 
