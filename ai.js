@@ -785,7 +785,6 @@ async function processMessage(req, res) {
 
   let result = '';
   try {
-<<<<<<< HEAD
     // Prepare conversation history for context
     // ⚡ OPTIMIZATION: Limit to last 5 messages for faster responses (reduced from 20)
     let history = conversationHistory || [];
@@ -810,18 +809,6 @@ async function processMessage(req, res) {
     // Tier 1 (Basic): OpenAI only for all modes
     // Tier 2 (Premium): OpenAI for general, Grok for night/adult mode
     // Tier 3 (Ultimate): Same as Tier 2 + background listen
-=======
-    // ⚡ INSTANT RESPONSE: Limit to last 2 messages only (ultra-fast!)
-    // This makes AI respond instantly by reducing processing time
-    let history = conversationHistory || [];
-    if (history.length > 2) {
-      console.log(`[processMessage] ⚡ INSTANT: Trimming history from ${history.length} to 2 messages`);
-      history = history.slice(-2); // Keep only last 2 messages for speed
-    }
-    
-    // AI Provider Selection Based on Tier & Speed
-    // Priority: Speed over complexity when fast=true
->>>>>>> d7d8ec47794c4788b5ca860e288302f08628d8f6
     
     if (mode === 'night') {
       const systemPrompt = 'You are Ev – witty, haunting, romantic. Keep 18+ vibe with tone. Be conversational and detailed.';
