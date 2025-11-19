@@ -2,7 +2,7 @@
 const admin = require('firebase-admin');
 const express = require('express');
 const cors = require('cors');
-const serverless = require('serverless-http');
+const { createServer } = require('@vercel/node');
 
 // Initialize Firebase Admin (only once)
 let firebaseInitialized = false;
@@ -128,13 +128,10 @@ app.get('/subscription/me', requireAuth, asyncHandler(async (req, res) => {
   return res.json({ tier, status });
 }));
 
-// Wrap Express app with serverless-http for Vercel compatibility
-// serverless-http handles the conversion between Vercel's format and Express
-// Express CORS middleware will handle OPTIONS requests automatically
-const handler = serverless(app, {
-  binary: ['image/*', 'application/pdf', 'application/octet-stream']
-});
+// Create Vercel-compatible server
+// @vercel/node properly handles Express apps for Vercel serverless functions
+const server = createServer(app);
 
-// Export handler for Vercel
-module.exports = handler;
+// Export server for Vercel
+module.exports = server;
 
