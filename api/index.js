@@ -27,6 +27,8 @@ if (!admin.apps.length) {
 
 // Import modules with error handling
 let requireAuth, asyncHandler, ai, schedule, expense, razorpay, auth;
+let modulesLoaded = false;
+
 try {
   console.log('[Init] Loading utils...');
   const utils = require('../utils');
@@ -44,11 +46,13 @@ try {
   razorpay = require('../razorpay');
   auth = require('../auth');
   console.log('[Init] ✅ All modules loaded successfully');
+  modulesLoaded = true;
 } catch (error) {
   console.error('❌ Error loading modules:', error);
   console.error('❌ Error stack:', error.stack);
   // Don't throw - let the app start and handle errors gracefully
   // This allows health check to work even if some modules fail
+  modulesLoaded = false;
 }
 
 const app = express();
@@ -95,19 +99,25 @@ app.options('*', cors(corsOptions)); // Handle preflight requests for all routes
 
 app.use(express.json({ limit: '10mb' }));
 
-// Root endpoint
+// Root endpoint - must respond immediately
 app.get('/', (req, res) => {
-  res.status(200).json({ 
-    ok: true, 
-    message: 'Humsafer API Server',
-    timestamp: new Date().toISOString(),
-    service: 'Humsafer API',
-    firebase: firebaseInitialized ? 'initialized' : 'not initialized',
-    endpoints: {
-      health: '/health',
-      apiHealth: '/api/health'
-    }
-  });
+  try {
+    return res.status(200).json({ 
+      ok: true, 
+      message: 'Humsafer API Server',
+      timestamp: new Date().toISOString(),
+      service: 'Humsafer API',
+      firebase: firebaseInitialized ? 'initialized' : 'not initialized',
+      modulesLoaded: modulesLoaded,
+      endpoints: {
+        health: '/health',
+        apiHealth: '/api/health'
+      }
+    });
+  } catch (e) {
+    console.error('[Root] Error:', e);
+    return res.status(500).json({ error: 'Internal error', message: e.message });
+  }
 });
 
 // Health check endpoint (public)
@@ -130,30 +140,57 @@ app.get('/api/health', (req, res) => {
 });
 
 // API routes (all require authentication)
-// Support streaming when client asks (X-Stream: 1 or body.stream === true)
-app.post('/ai/process', requireAuth, asyncHandler(async (req, res) => {
-  const wantsStream = req.headers['x-stream'] === '1' || req.body?.stream === true;
-  if (wantsStream) {
-    return ai.processMessageStream(req, res);
+// Only register routes if modules loaded successfully
+if (modulesLoaded && requireAuth && asyncHandler && ai) {
+  // Support streaming when client asks (X-Stream: 1 or body.stream === true)
+  app.post('/ai/process', requireAuth, asyncHandler(async (req, res) => {
+    const wantsStream = req.headers['x-stream'] === '1' || req.body?.stream === true;
+    if (wantsStream) {
+      return ai.processMessageStream(req, res);
+    }
+    return ai.processMessage(req, res);
+  }));
+  app.post('/voice/intent', requireAuth, asyncHandler(ai.voiceIntent));
+  
+  if (schedule) {
+    app.post('/schedule/add', requireAuth, asyncHandler(schedule.add));
+    app.get('/schedule/list', requireAuth, asyncHandler(schedule.list));
   }
-  return ai.processMessage(req, res);
-}));
-app.post('/voice/intent', requireAuth, asyncHandler(ai.voiceIntent));
-app.post('/schedule/add', requireAuth, asyncHandler(schedule.add));
-app.get('/schedule/list', requireAuth, asyncHandler(schedule.list));
-app.post('/expense/add', requireAuth, asyncHandler(expense.add));
-app.get('/report/monthly', requireAuth, asyncHandler(expense.monthly));
-app.post('/razorpay/create-order', requireAuth, asyncHandler(razorpay.createOrder));
-app.post('/razorpay/verify-payment', requireAuth, asyncHandler(razorpay.verifyPayment));
-
-// Subscription management
-app.get('/subscription/me', requireAuth, asyncHandler(async (req, res) => {
-  const uid = req.userId;
-  const userDoc = await admin.firestore().collection('users').doc(uid).get();
-  const tier = userDoc.data()?.subscriptionTier || null;
-  const status = userDoc.data()?.subscriptionStatus || null;
-  return res.json({ tier, status });
-}));
+  
+  if (expense) {
+    app.post('/expense/add', requireAuth, asyncHandler(expense.add));
+    app.get('/report/monthly', requireAuth, asyncHandler(expense.monthly));
+  }
+  
+  if (razorpay) {
+    app.post('/razorpay/create-order', requireAuth, asyncHandler(razorpay.createOrder));
+    app.post('/razorpay/verify-payment', requireAuth, asyncHandler(razorpay.verifyPayment));
+  }
+  
+  // Subscription management
+  app.get('/subscription/me', requireAuth, asyncHandler(async (req, res) => {
+    const uid = req.userId;
+    try {
+      const userDoc = await admin.firestore().collection('users').doc(uid).get();
+      const tier = userDoc.data()?.subscriptionTier || null;
+      const status = userDoc.data()?.subscriptionStatus || null;
+      return res.json({ tier, status });
+    } catch (e) {
+      console.error('[Subscription] Error:', e.message);
+      return res.status(500).json({ error: 'Failed to get subscription', detail: e.message });
+    }
+  }));
+} else {
+  console.warn('⚠️ Modules not loaded - API routes disabled. Health check endpoints still work.');
+  // Add a route to inform about module loading failure
+  app.post('/ai/process', (req, res) => {
+    res.status(503).json({ 
+      error: 'Service temporarily unavailable',
+      message: 'Backend modules failed to load. Check server logs.',
+      modulesLoaded: false
+    });
+  });
+}
 
 // 404 handler
 app.use((req, res) => {
@@ -170,5 +207,10 @@ app.use((err, req, res, next) => {
 
 // Wrap Express app with serverless-http
 // This is required for Vercel serverless functions
-module.exports = serverless(app);
+const handler = serverless(app, {
+  binary: ['image/*', 'application/pdf']
+});
+
+// Export handler for Vercel
+module.exports = handler;
 
