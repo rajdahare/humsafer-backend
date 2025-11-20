@@ -1,6 +1,7 @@
 const admin = require('firebase-admin');
 
 console.log('[utils] Authentication module loaded');
+const hasServiceAccount = !!process.env.FIREBASE_SERVICE_ACCOUNT;
 
 async function verifyToken(req) {
   const hdr = req.headers.authorization || '';
@@ -36,6 +37,7 @@ function requireAuth(req, res, next) {
   // Development mode - allow unauthenticated access
   if (
     process.env.ALLOW_UNAUTHENTICATED === 'true' ||
+    !hasServiceAccount ||
     req.query.demo === 'true' ||
     (req.headers['x-demo'] && String(req.headers['x-demo']).toLowerCase() === 'true')
   ) {
