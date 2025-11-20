@@ -1,6 +1,13 @@
 // Vercel Serverless Function Entry Point
 // Use Vercel's native handler for better performance
 
+// Shared state across cold starts
+const state = globalThis.__humsaferApiState ??= {
+  app: null,
+  handler: null,
+  modulesLoaded: false,
+};
+
 module.exports = async (req, res) => {
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -47,12 +54,12 @@ module.exports = async (req, res) => {
     const serverless = require('serverless-http');
     
     // Create app if not already created
-    if (!global.__app) {
-      global.__app = express();
-      global.__app.use(express.json({ limit: '10mb' }));
+    if (!state.app) {
+      state.app = express();
+      state.app.use(express.json({ limit: '10mb' }));
       
       // CORS middleware
-      global.__app.use((req, res, next) => {
+      state.app.use((req, res, next) => {
         res.header('Access-Control-Allow-Origin', '*');
         res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
         res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,x-demo,firebase-auth-token,x-stream,X-Stream');
@@ -61,13 +68,9 @@ module.exports = async (req, res) => {
         }
         next();
       });
-      
       // Lazy load and setup routes
-      let modulesLoaded = false;
-      
-      function loadModules() {
-        if (modulesLoaded) return;
-        
+      const loadModules = () => {
+        if (state.modulesLoaded) return;
         try {
           const admin = require('firebase-admin');
           if (!admin.apps.length && process.env.FIREBASE_SERVICE_ACCOUNT) {
@@ -82,7 +85,7 @@ module.exports = async (req, res) => {
           const asyncHandler = utils.asyncHandler;
           const ai = require('../ai');
           
-          global.__app.post('/ai/process', requireAuth, asyncHandler(async (req, res) => {
+          state.app.post('/ai/process', requireAuth, asyncHandler(async (req, res) => {
             const wantsStream = req.headers['x-stream'] === '1' || req.body?.stream === true;
             if (wantsStream) {
               return ai.processMessageStream(req, res);
@@ -90,20 +93,20 @@ module.exports = async (req, res) => {
             return ai.processMessage(req, res);
           }));
           
-          global.__app.post('/voice/intent', requireAuth, asyncHandler(ai.voiceIntent));
+          state.app.post('/voice/intent', requireAuth, asyncHandler(ai.voiceIntent));
           
           const schedule = require('../schedule');
           const expense = require('../expense');
           const razorpay = require('../razorpay');
           
-          global.__app.post('/schedule/add', requireAuth, asyncHandler(schedule.add));
-          global.__app.get('/schedule/list', requireAuth, asyncHandler(schedule.list));
-          global.__app.post('/expense/add', requireAuth, asyncHandler(expense.add));
-          global.__app.get('/report/monthly', requireAuth, asyncHandler(expense.monthly));
-          global.__app.post('/razorpay/create-order', requireAuth, asyncHandler(razorpay.createOrder));
-          global.__app.post('/razorpay/verify-payment', requireAuth, asyncHandler(razorpay.verifyPayment));
+          state.app.post('/schedule/add', requireAuth, asyncHandler(schedule.add));
+          state.app.get('/schedule/list', requireAuth, asyncHandler(schedule.list));
+          state.app.post('/expense/add', requireAuth, asyncHandler(expense.add));
+          state.app.get('/report/monthly', requireAuth, asyncHandler(expense.monthly));
+          state.app.post('/razorpay/create-order', requireAuth, asyncHandler(razorpay.createOrder));
+          state.app.post('/razorpay/verify-payment', requireAuth, asyncHandler(razorpay.verifyPayment));
           
-          global.__app.get('/subscription/me', requireAuth, asyncHandler(async (req, res) => {
+          state.app.get('/subscription/me', requireAuth, asyncHandler(async (req, res) => {
             const uid = req.userId;
             try {
               const userDoc = await admin.firestore().collection('users').doc(uid).get();
@@ -116,34 +119,34 @@ module.exports = async (req, res) => {
             }
           }));
           
-          global.__app.use((req, res) => {
+          state.app.use((req, res) => {
             res.status(404).json({ error: 'Not Found', path: req.path });
           });
           
-          global.__app.use((err, req, res, next) => {
+          state.app.use((err, req, res, next) => {
             console.error('Error:', err);
             res.status(err.status || 500).json({
               error: err.message || 'Internal Server Error'
             });
           });
           
-          modulesLoaded = true;
+          state.modulesLoaded = true;
         } catch (error) {
           console.error('[Init] Module loading error:', error.message);
         }
-      }
+      };
       
       // Load modules on first API request
       loadModules();
     }
     
     // Use serverless-http to handle Express app
-    if (!global.__handler) {
-      global.__handler = serverless(global.__app);
+    if (!state.handler) {
+      state.handler = serverless(state.app);
     }
     
     // Delegate to Express handler
-    return global.__handler(req, res);
+    return state.handler(req, res);
     
   } catch (error) {
     console.error('[Handler] Error:', error);
