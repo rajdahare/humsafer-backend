@@ -33,11 +33,11 @@ try {
   requireAuth = utils.requireAuth;
   asyncHandler = utils.asyncHandler;
   console.log('[Init] ✅ Utils loaded');
-  
+
   console.log('[Init] Loading ai module...');
   ai = require('../ai');
   console.log('[Init] ✅ AI module loaded');
-  
+
   console.log('[Init] Loading other modules...');
   schedule = require('../schedule');
   expense = require('../expense');
@@ -53,14 +53,32 @@ try {
 
 const app = express();
 
+const parseAllowedOrigins = () => {
+  const raw = process.env.ALLOWED_ORIGINS;
+  if (!raw || !raw.trim()) {
+    return ['*'];
+  }
+  return raw
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+};
+
+const allowedOrigins = parseAllowedOrigins();
+console.log('[CORS] Allowed origins:', allowedOrigins.join(', '));
+
 // Enhanced CORS configuration (matching server.local.js)
 const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (mobile apps, Postman, curl)
     if (!origin) return callback(null, true);
-    
-    // Allow all origins (or restrict to specific domains in production)
-    callback(null, true);
+
+    if (allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    console.warn(`[CORS] Blocked origin: ${origin}`);
+    return callback(new Error('Origin not allowed by CORS'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],

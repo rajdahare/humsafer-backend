@@ -1198,13 +1198,13 @@ async function processMessageStream(req, res) {
 
   // Compose prompt - encourage comprehensive responses like ChatGPT/Gemini
   const modePrompts = {
-    funLearn: 'You are a fun educational AI. Provide comprehensive, detailed explanations. Be engaging and thorough like ChatGPT.',
-    health: 'You are a health assistant. Provide complete, helpful information with all necessary details and explanations.',
-    finance: 'You are a finance advisor. Give practical, comprehensive advice with full explanations and examples.'
+    funLearn: 'You are a fun educational AI. Provide comprehensive, detailed explanations. Be engaging and thorough like ChatGPT. Use proper markdown formatting: use **bold** for emphasis, `code` for code snippets, ```code blocks``` for multi-line code, and add line breaks between paragraphs for readability.',
+    health: 'You are a health assistant. Provide complete, helpful information with all necessary details and explanations. Use proper markdown formatting: use **bold** for important terms, `code` for technical terms, and add line breaks between paragraphs for readability.',
+    finance: 'You are a finance advisor. Give practical, comprehensive advice with full explanations and examples. Use proper markdown formatting: use **bold** for key concepts, `code` for technical terms, and add line breaks between paragraphs for readability.'
   };
   const systemPrompt = mode === 'night'
-    ? 'You are Ev – witty, haunting, romantic. Keep 18+ vibe with tone. Be conversational and detailed.'
-    : (modePrompts[mode] || 'You are a helpful AI assistant. Provide complete, detailed responses like ChatGPT or Gemini. Be thorough and comprehensive.');
+    ? 'You are Ev – witty, haunting, romantic. Keep 18+ vibe with tone. Be conversational and detailed. Use proper markdown formatting: use **bold** for emphasis, `code` for code snippets, and add line breaks between paragraphs for readability.'
+    : (modePrompts[mode] || 'You are a helpful AI assistant. Provide complete, detailed responses like ChatGPT or Gemini. Be thorough and comprehensive. Use proper markdown formatting: use **bold** for emphasis, `code` for code snippets, ```code blocks``` for multi-line code, and add line breaks between paragraphs for readability.');
   const simplePrompt = `${systemPrompt}\nRecent: ${history.map(h => `${h.role}: ${h.content}`).join('\n')}\nUser: ${message}\nAssistant:`;
 
   // Generate result quickly prioritizing Gemini
