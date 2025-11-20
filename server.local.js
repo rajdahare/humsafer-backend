@@ -127,8 +127,32 @@ app.use((req, res, next) => {
   next();
 });
 
+// Root endpoint
+app.get('/', (req, res) => {
+  res.status(200).json({ 
+    ok: true, 
+    message: 'Humsafer API Server',
+    timestamp: new Date().toISOString(),
+    service: 'Humsafer API',
+    environment: process.env.NODE_ENV || 'production',
+    endpoints: {
+      health: '/health',
+      apiHealth: '/api/health'
+    }
+  });
+});
+
 // Health check endpoint (public)
 app.get('/health', (req, res) => {
+  res.status(200).json({ 
+    ok: true, 
+    timestamp: new Date().toISOString(),
+    service: 'Humsafer API',
+    environment: process.env.NODE_ENV || 'production'
+  });
+});
+
+app.get('/api/health', (req, res) => {
   res.status(200).json({ 
     ok: true, 
     timestamp: new Date().toISOString(),
