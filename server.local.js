@@ -246,9 +246,10 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Start server
+// Start server with error handling
 const PORT = process.env.PORT || 5002;
-app.listen(PORT, () => {
+
+const server = app.listen(PORT, () => {
   console.log('');
   console.log('═══════════════════════════════════════════════════════');
   console.log('🚀 Backend Server Started Successfully!');
@@ -300,4 +301,24 @@ if (require.main === module) {
     process.exit(0);
   });
 }
+
+// Handle port already in use error
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error('');
+    console.error('❌ ERROR: Port', PORT, 'is already in use!');
+    console.error('');
+    console.error('💡 Solutions:');
+    console.error('   1. Kill the process using port', PORT + ':');
+    console.error('      Get-NetTCPConnection -LocalPort', PORT, '| Select-Object -ExpandProperty OwningProcess | Stop-Process -Force');
+    console.error('');
+    console.error('   2. Or use a different port:');
+    console.error('      $env:PORT=5003; npm start');
+    console.error('');
+    process.exit(1);
+  } else {
+    console.error('❌ Server error:', err);
+    process.exit(1);
+  }
+});
 
