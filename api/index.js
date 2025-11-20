@@ -25,34 +25,56 @@ if (!admin.apps.length) {
   }
 }
 
-// Import modules with error handling
+// Import modules with error handling - load each module individually to prevent cascading failures
 let requireAuth, asyncHandler, ai, schedule, expense, razorpay, auth;
 let modulesLoaded = false;
 
+// Load utils (required for most routes)
 try {
   console.log('[Init] Loading utils...');
   const utils = require('../utils');
   requireAuth = utils.requireAuth;
   asyncHandler = utils.asyncHandler;
   console.log('[Init] ✅ Utils loaded');
+} catch (error) {
+  console.error('❌ Error loading utils:', error.message);
+  console.error('❌ Utils error stack:', error.stack);
+}
 
+// Load AI module (required for /ai/process)
+try {
   console.log('[Init] Loading ai module...');
   ai = require('../ai');
   console.log('[Init] ✅ AI module loaded');
+} catch (error) {
+  console.error('❌ Error loading ai module:', error.message);
+  console.error('❌ AI error stack:', error.stack);
+  ai = null;
+}
 
+// Load optional modules
+try {
   console.log('[Init] Loading other modules...');
   schedule = require('../schedule');
   expense = require('../expense');
   razorpay = require('../razorpay');
   auth = require('../auth');
-  console.log('[Init] ✅ All modules loaded successfully');
-  modulesLoaded = true;
+  console.log('[Init] ✅ Optional modules loaded');
 } catch (error) {
-  console.error('❌ Error loading modules:', error);
-  console.error('❌ Error stack:', error.stack);
-  // Don't throw - let the app start and handle errors gracefully
-  // This allows health check to work even if some modules fail
-  modulesLoaded = false;
+  console.error('❌ Error loading optional modules:', error.message);
+  console.error('❌ Optional modules error stack:', error.stack);
+  schedule = null;
+  expense = null;
+  razorpay = null;
+  auth = null;
+}
+
+// Check if critical modules loaded
+modulesLoaded = !!(requireAuth && asyncHandler && ai);
+if (modulesLoaded) {
+  console.log('[Init] ✅ All critical modules loaded successfully');
+} else {
+  console.warn('⚠️ Some critical modules failed to load - API routes will be limited');
 }
 
 const app = express();
@@ -207,10 +229,28 @@ app.use((err, req, res, next) => {
 
 // Wrap Express app with serverless-http
 // This is required for Vercel serverless functions
-const handler = serverless(app, {
-  binary: ['image/*', 'application/pdf']
-});
+let handler;
+try {
+  handler = serverless(app, {
+    binary: ['image/*', 'application/pdf']
+  });
+  console.log('[Init] ✅ Serverless handler created successfully');
+} catch (error) {
+  console.error('❌ Error creating serverless handler:', error.message);
+  console.error('❌ Handler error stack:', error.stack);
+  // Create a minimal Express app as fallback
+  const fallbackApp = express();
+  fallbackApp.use(cors());
+  fallbackApp.get('*', (req, res) => {
+    res.status(500).json({ 
+      error: 'Handler initialization failed',
+      message: error.message 
+    });
+  });
+  handler = serverless(fallbackApp);
+}
 
-// Export handler for Vercel
+// Export handler for Vercel - MUST always export something
+// This ensures the function can be invoked even if there were initialization errors
 module.exports = handler;
 
