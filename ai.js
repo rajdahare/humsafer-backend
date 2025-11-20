@@ -938,7 +938,6 @@ async function processMessage(req, res) {
   }
   
   console.log(`[processMessage] ✅ Response ready (${result?.length || 0} chars)`);
->>>>>>> d7d8ec47794c4788b5ca860e288302f08628d8f6
   } catch (e) {
     console.error('[processMessage] Error:', e.message || e);
     
