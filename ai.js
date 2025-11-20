@@ -5,7 +5,10 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { ok } = require('./utils');
 const { checkMessageLimit, incrementMessageCount, getRemainingQuota } = require('./usage-limits');
 
-const db = admin.firestore();
+// Lazy Firestore access - don't initialize at module load
+function getDb() {
+  return admin.firestore();
+}
 
 const GOOGLE_AI_API_KEY = process.env.GOOGLE_AI_API_KEY || process.env.GOOGLE_AP_API_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -368,7 +371,7 @@ async function handleExpenseIntent(req, res, message, tier) {
     let note = message;
     
     // Add expense
-    const expenseRef = await db.collection('users').doc(uid).collection('expenses').add({
+    const expenseRef = await getDb().collection('users').doc(uid).collection('expenses').add({
       amount: amount,
       category: category,
       note: note,
@@ -378,7 +381,7 @@ async function handleExpenseIntent(req, res, message, tier) {
     const response = `Got it! I've added an expense of Rs ${amount} under ${category} category. Your expense has been tracked.`;
     
     // Log the action
-    await db.collection('users').doc(uid).collection('ai_logs').add({
+    await getDb().collection('users').doc(uid).collection('ai_logs').add({
       text: message,
       response: response,
       action: 'expense.add',
@@ -504,7 +507,7 @@ Today is ${new Date().toISOString()}.`;
     }
     
     // Add to schedule
-    const scheduleRef = await db.collection('users').doc(uid).collection('schedule').add({
+    const scheduleRef = await getDb().collection('users').doc(uid).collection('schedule').add({
       title: extractedData.title,
       datetime: extractedData.datetime,
       note: extractedData.note || '',
@@ -526,7 +529,7 @@ Today is ${new Date().toISOString()}.`;
     const response = `Done! I've added "${extractedData.title}" to your calendar for ${dateStr} at ${timeStr}. You'll get a reminder notification before the event.`;
     
     // Log the action
-    await db.collection('users').doc(uid).collection('ai_logs').add({
+    await getDb().collection('users').doc(uid).collection('ai_logs').add({
       text: message,
       response: response,
       action: 'schedule.add',
@@ -647,7 +650,7 @@ Today is ${new Date().toISOString()}.`;
     }
     
     // Add to schedule in Firestore
-    const scheduleRef = await db.collection('users').doc(uid).collection('schedule').add({
+    const scheduleRef = await getDb().collection('users').doc(uid).collection('schedule').add({
       title: extractedData.title,
       datetime: extractedData.datetime,
       note: extractedData.description || '',
@@ -675,7 +678,7 @@ Today is ${new Date().toISOString()}.`;
     const response = `Perfect! I've scheduled a Google Meet "${extractedData.title}"${attendeesList} for ${dateStr} at ${timeStr}. The meeting has been added to your calendar with a Google Meet link, and you'll get a reminder 10 minutes before the meeting starts.`;
     
     // Log the action
-    await db.collection('users').doc(uid).collection('ai_logs').add({
+    await getDb().collection('users').doc(uid).collection('ai_logs').add({
       text: message,
       response: response,
       action: 'google_meet.create',
@@ -1001,7 +1004,7 @@ async function processMessage(req, res) {
   });
   
   // Log to Firestore (background)
-  db.collection('users')
+  getDb().collection('users')
     .doc(uid)
     .collection('ai_logs')
     .add({
@@ -1154,7 +1157,7 @@ async function voiceIntent(req, res) {
     // naive: extract after keyword
     const title = command.replace(/^(add reminder|remind me)\s*/i, '').trim();
     const when = new Date(Date.now() + 60 * 60 * 1000); // default +1h
-    const ref = await db.collection('users').doc(uid).collection('schedule').add({
+    const ref = await getDb().collection('users').doc(uid).collection('schedule').add({
       title: title || 'Reminder',
       datetime: when.toISOString(),
       createdAt: admin.firestore.FieldValue.serverTimestamp ? admin.firestore.FieldValue.serverTimestamp() : new Date(),
@@ -1164,7 +1167,7 @@ async function voiceIntent(req, res) {
   if (lower.startsWith('add expense')) {
     const amountMatch = command.match(/(\d+([\.,]\d+)?)/);
     const amount = amountMatch ? parseFloat(amountMatch[1].replace(',', '.')) : 0;
-    await db.collection('users').doc(uid).collection('expenses').add({
+    await getDb().collection('users').doc(uid).collection('expenses').add({
       amount,
       category: 'personal',
       createdAt: admin.firestore.FieldValue.serverTimestamp ? admin.firestore.FieldValue.serverTimestamp() : new Date(),
