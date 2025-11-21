@@ -41,7 +41,8 @@ function requireAuth(req, res, next) {
     req.query.demo === 'true' ||
     (req.headers['x-demo'] && String(req.headers['x-demo']).toLowerCase() === 'true')
   ) {
-    req.userId = 'demo';
+    const demoUid = req.headers['x-demo-uid'];
+    req.userId = typeof demoUid === 'string' && demoUid.length > 0 ? demoUid : 'demo';
     return next();
   }
   
