@@ -46,6 +46,17 @@ module.exports = async (req, res) => {
     });
   }
   
+  // AI endpoint info - respond IMMEDIATELY to prevent timeouts
+  if (req.url === '/ai' && req.method === 'GET') {
+    return res.status(200).json({
+      ok: true,
+      message: 'AI API Endpoint',
+      endpoint: '/ai/process',
+      method: 'POST',
+      timestamp: new Date().toISOString(),
+    });
+  }
+  
   // For all other routes, use Express (lazy load)
   // This ensures root/health endpoints work even if Express fails to load
   try {

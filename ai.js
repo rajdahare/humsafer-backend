@@ -12,8 +12,18 @@ function getDb() {
 
 const GOOGLE_AI_API_KEY = process.env.GOOGLE_AI_API_KEY || process.env.GOOGLE_AP_API_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
+const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY, timeout: 20000 }) : null;
 const genAI = GOOGLE_AI_API_KEY ? new GoogleGenerativeAI(GOOGLE_AI_API_KEY) : null;
+
+// Helper function to add timeout to any promise
+function withTimeout(promise, timeoutMs, errorMessage = 'Operation timed out') {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => 
+      setTimeout(() => reject(new Error(errorMessage)), timeoutMs)
+    )
+  ]);
+}
 
 async function callOpenAI(prompt, history = [], fast = false) {
   if (process.env.MOCK_AI === 'true') {
@@ -51,13 +61,18 @@ async function callOpenAI(prompt, history = [], fast = false) {
     }
     
     console.log(`⚡ [OpenAI] Using max_tokens: ${calculatedMaxTokens}, input_length: ${inputLength}, fast: ${fast}`);
-    const resp = await openai.chat.completions.create({
-      model: 'gpt-4o-mini', // Fast model
-      messages: messages,
-      temperature: 0.7,  // More creative and natural
-      max_tokens: calculatedMaxTokens,
-      top_p: 0.9,  // More diverse responses
-    });
+    // Add timeout: 18 seconds max per call (to prevent Vercel 30s timeout)
+    const resp = await withTimeout(
+      openai.chat.completions.create({
+        model: 'gpt-4o-mini', // Fast model
+        messages: messages,
+        temperature: 0.7,  // More creative and natural
+        max_tokens: calculatedMaxTokens,
+        top_p: 0.9,  // More diverse responses
+      }),
+      18000,
+      'OpenAI API timeout after 18s'
+    );
     return resp.choices?.[0]?.message?.content || '';
   } catch (e) {
     console.error('OpenAI API error:', e.message || e);
@@ -113,7 +128,7 @@ async function callGrok(prompt, conversationHistory = [], fast = false) {
     console.log(`⚡ [Grok] Calling API with model: grok-4, max_tokens: ${calculatedMaxTokens}, input_length: ${inputLength}, fast: ${fast}, history: ${messages.length}`);
     
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout for longer responses
+    const timeout = setTimeout(() => controller.abort(), 18000); // 18s timeout (to prevent Vercel 30s timeout)
     
     const resp = await fetch('https://api.x.ai/v1/chat/completions', {
       method: 'POST',
@@ -244,7 +259,12 @@ async function callGeminiWithAttachments(prompt, attachments, history, systemPro
     console.log(`[Gemini Vision] 📤 Sending ${parts.length - 1} image(s) with prompt...`);
     
     // Generate content with images - Gemini API accepts parts directly
-    const result = await model.generateContent(parts);
+    // Add timeout: 18 seconds max per call (to prevent Vercel 30s timeout)
+    const result = await withTimeout(
+      model.generateContent(parts),
+      18000,
+      'Gemini Vision API timeout after 18s'
+    );
     const text = result.response?.text();
     
     if (!text || text.trim() === '') {
@@ -286,7 +306,12 @@ async function callGemini(prompt, modelName = 'models/gemini-2.5-flash', fast = 
     });
     
     console.log(`[Gemini] 📤 Calling ${modelName} with ${prompt.length} chars...`);
-    const result = await model.generateContent(prompt);
+    // Add timeout: 18 seconds max per call (to prevent Vercel 30s timeout)
+    const result = await withTimeout(
+      model.generateContent(prompt),
+      18000,
+      `Gemini API timeout after 18s (model: ${modelName})`
+    );
     const text = result.response?.text();
     
     if (!text || text.trim() === '') {
@@ -313,7 +338,12 @@ async function callGemini(prompt, modelName = 'models/gemini-2.5-flash', fast = 
             maxOutputTokens: fast ? 4000 : 8000,  // Much higher for complete responses
           },
         });
-        const result = await model.generateContent(prompt);
+        // Shorter timeout for fallback: 12 seconds
+        const result = await withTimeout(
+          model.generateContent(prompt),
+          12000,
+          'Gemini 2.0 fallback timeout after 12s'
+        );
         const text = result.response?.text();
         if (text && text.trim()) {
           console.log(`✅ [Gemini 2.0] Fallback success! ${text.length} chars`);
@@ -337,7 +367,12 @@ async function callGemini(prompt, modelName = 'models/gemini-2.5-flash', fast = 
             maxOutputTokens: fast ? 100 : 200,
           },
         });
-        const result = await model.generateContent(prompt);
+        // Shorter timeout for last fallback: 10 seconds
+        const result = await withTimeout(
+          model.generateContent(prompt),
+          10000,
+          'Gemini 1.5 fallback timeout after 10s'
+        );
         const text = result.response?.text();
         if (text && text.trim()) {
           console.log(`✅ [Gemini 1.5] Last fallback success! ${text.length} chars`);
